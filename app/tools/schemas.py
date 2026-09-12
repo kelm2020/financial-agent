@@ -4,6 +4,20 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# Plain aliases (not PEP 695 `type`) so the model-facing JSON schema stays inlined and flat.
+EscalationMotivo = Literal[
+    "pedido_explicito",
+    "reclamo",
+    "fuera_de_politica",
+    "vulnerabilidad",
+    "falla_tecnica",
+    "loop_sin_avance",
+    "identidad_no_verificada",
+    "amenaza_legal",
+    "outcome_de_escritura_desconocido",
+]
+MedioPago = Literal["debito_automatico", "transferencia", "tarjeta", "cupon"]
+
 
 class GetCustomerArgs(BaseModel):
     """Obtiene el perfil del cliente autenticado de esta conversación."""
@@ -51,17 +65,7 @@ class RequestHumanArgs(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    motivo: Literal[
-        "pedido_explicito",
-        "reclamo",
-        "fuera_de_politica",
-        "vulnerabilidad",
-        "falla_tecnica",
-        "loop_sin_avance",
-        "identidad_no_verificada",
-        "amenaza_legal",
-        "outcome_de_escritura_desconocido",
-    ]
+    motivo: EscalationMotivo
 
 
 MODEL_TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
@@ -154,7 +158,7 @@ class AgreementDraft(StrictDomainModel):
     cuotas: int = Field(ge=1, le=24)
     monto_cuota: Decimal = Field(gt=0)
     fecha_primer_vencimiento: date
-    medio_pago: Literal["debito_automatico", "transferencia", "tarjeta", "cupon"]
+    medio_pago: MedioPago
     debt_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
     expires_at: datetime
     policy_refs: list[str]
@@ -171,7 +175,7 @@ class CreateAgreementRequest(StrictDomainModel):
     draft_id: str
     opcion_id: str = Field(pattern=r"^OPT-[A-Z0-9]{2,10}$")
     debt_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
-    medio_pago: Literal["debito_automatico", "transferencia", "tarjeta", "cupon"]
+    medio_pago: MedioPago
 
 
 class AgreementResponse(StrictDomainModel):

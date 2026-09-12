@@ -10,6 +10,7 @@ WORKDIR /workspace
 COPY pyproject.toml uv.lock* README.md ./
 COPY app app
 COPY config config
+COPY kb kb
 COPY migrations migrations
 COPY mock_api mock_api
 COPY scripts scripts
@@ -18,4 +19,3 @@ COPY alembic.ini ./
 RUN uv sync --frozen --no-dev
 
 CMD ["uv", "run", "uvicorn", "mock_api.main:app", "--host", "0.0.0.0", "--port", "8001"]
-

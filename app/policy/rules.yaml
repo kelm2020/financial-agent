@@ -1,0 +1,92 @@
+version: "2026.09"
+segmentos:
+  mora_temprana: {dias_min: 1, dias_max: 60}
+  mora_media: {dias_min: 61, dias_max: 120}
+  mora_tardia: {dias_min: 121, dias_max: 180}
+  prejudicial: {dias_min: 181, dias_max: null} # sin techo: "181 o más" (POL-NEG-002)
+
+refinanciacion:
+  mora_temprana: {cuotas_max: 6, quita_interes_max_pct: 0, anticipo_min_pct: 0}
+  mora_media: {cuotas_max: 9, quita_interes_max_pct: 20, anticipo_min_pct: 10}
+  mora_tardia: {cuotas_max: 12, quita_interes_max_pct: 40, anticipo_min_pct: 15}
+  prejudicial: {requiere_operador: true}
+  anticipo_requerido_desde_cuotas: 4
+
+recargo_financiacion_pct:
+  "1": 0
+  "2-3": 0
+  "4-6": 8
+  "7-9": 16
+  "10-12": 24
+
+limites_globales:
+  cuota_minima_ars: 15000
+  monto_minimo_pago_parcial_pct: 10
+  vigencia_oferta_horas: 48
+  max_acuerdos_activos: 1
+  primera_cuota_dias_min: 5
+  primera_cuota_dias_max: 15
+  redondeo_cuota: "al_peso"
+  baja_plan_dias_impago: 10 # POL-NEG-008; lo consume F3 al informar consecuencias
+
+# PAY-MET-001 / PAY-MET-003: la tarjeta de crédito se usa en un pago. null = sin tope propio.
+medios_pago:
+  debito_automatico: {cuotas_max: null}
+  transferencia: {cuotas_max: null}
+  tarjeta: {cuotas_max: 1}
+  cupon: {cuotas_max: null}
+
+# Se evalúan en este orden y gana la primera que aplica. Toda señal de PolicySignals y todo
+# criterio de datos del cliente que escala tiene que estar acá: el motor no escala por reglas
+# que no figuren en este archivo.
+escalamiento_obligatorio:
+  - regla: pedido_explicito_de_humano
+    motivo: pedido_explicito
+    descripcion: El cliente pidió hablar con una persona.
+    policy_refs: [ESC-001]
+  - regla: presenta_reclamo
+    motivo: reclamo
+    descripcion: El cliente desconoce o reclama la deuda.
+    policy_refs: [ESC-001]
+  - regla: cliente_declara_vulnerabilidad
+    motivo: vulnerabilidad
+    descripcion: El cliente declaró una situación de vulnerabilidad.
+    policy_refs: [ESC-002]
+  - regla: marca_vulnerabilidad
+    motivo: vulnerabilidad
+    descripcion: El cliente tiene una marca de vulnerabilidad registrada.
+    policy_refs: [ESC-002]
+  - regla: menciona_abogado_o_demanda
+    motivo: amenaza_legal
+    descripcion: El cliente mencionó un abogado, una demanda o una acción judicial.
+    policy_refs: [ESC-001]
+  - regla: identidad_no_verificada
+    motivo: identidad_no_verificada
+    descripcion: La identidad del titular no está verificada.
+    policy_refs: [POL-NEG-001, ESC-001]
+  - regla: indicios_fraude
+    motivo: identidad_no_verificada
+    descripcion: Hay indicios de fraude sobre la identidad del interlocutor.
+    policy_refs: [ESC-001]
+  - regla: acuerdos_previos_incumplidos
+    minimo: 2
+    motivo: fuera_de_politica
+    descripcion: El cliente registra dos o más acuerdos incumplidos.
+    policy_refs: [POL-NEG-008, ESC-001]
+  - regla: segmento
+    segmentos: [prejudicial]
+    motivo: fuera_de_politica
+    descripcion: El segmento prejudicial requiere operador.
+    policy_refs: [POL-NEG-002, ESC-001]
+  - regla: outcome_escritura_desconocido
+    motivo: outcome_de_escritura_desconocido
+    descripcion: El resultado de la escritura no puede confirmarse.
+    policy_refs: [ESC-003]
+  - regla: falla_tecnica
+    motivo: falla_tecnica
+    descripcion: El sistema falló después de los reintentos permitidos.
+    policy_refs: [ESC-001, ESC-003]
+  - regla: tres_intentos_sin_avance
+    motivo: loop_sin_avance
+    descripcion: La conversación agotó los intentos sin avanzar.
+    policy_refs: [ESC-001]

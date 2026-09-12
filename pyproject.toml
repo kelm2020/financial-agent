@@ -17,6 +17,7 @@ dependencies = [
   "pyjwt>=2.10,<3",
   "python-json-logger>=3.3,<4",
   "pyyaml>=6.0,<7",
+  "snowballstemmer>=3.1.1",
   "sqlalchemy>=2.0,<3",
   "tenacity==9.1.4",
   "uvicorn[standard]>=0.35,<1",

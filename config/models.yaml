@@ -19,6 +19,9 @@ tiers:
     provider: openai
     model: text-embedding-3-large
     dimensions: 1536
+  reranker:
+    provider: cohere
+    model: rerank-v3.5
 fallbacks:
   medium:
     - openai:gpt-5.4

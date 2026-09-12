@@ -1,0 +1,83 @@
+# DEV SPLIT — used for calibration and error analysis. Written independently from the test
+# split: new phrasings, every section of the corpus, and plausible questions the KB does not
+# answer. Several sections are acceptable when an FAQ restates a policy section.
+split: dev
+effective_on: 2026-09-12
+
+positive:
+  - {id: D-01, topic: negociacion, expected_section_ids: [POL-NEG-001, FAQ-010],
+     query: "¿puede refinanciar mi esposa a su nombre la deuda que es mía?"}
+  - {id: D-02, topic: negociacion, expected_section_ids: [POL-NEG-002],
+     query: "¿cómo se define en qué tramo de atraso estoy?"}
+  - {id: D-03, topic: negociacion, expected_section_ids: [POL-NEG-003],
+     query: "¿me perdonan parte de los intereses si cancelo al contado?"}
+  - {id: D-04, topic: negociacion, expected_section_ids: [POL-NEG-004],
+     query: "¿cuánto recargo le suman a la deuda si la financio en ocho pagos mensuales?"}
+  - {id: D-05, topic: negociacion, expected_section_ids: [POL-NEG-005],
+     query: "¿el adelanto se descuenta de lo que queda por financiar?"}
+  - {id: D-06, topic: negociacion, expected_section_ids: [POL-NEG-006],
+     query: "¿cuál es el valor más bajo que puede tener cada mensualidad?"}
+  - {id: D-07, topic: negociacion, expected_section_ids: [POL-NEG-006, FAQ-001],
+     query: "¿puedo hacer una entrega a cuenta sin firmar ningún plan?"}
+  - {id: D-08, topic: negociacion, expected_section_ids: [POL-NEG-007],
+     query: "¿con cuántos días de margen puedo elegir el primer vencimiento?"}
+  - {id: D-09, topic: negociacion, expected_section_ids: [POL-NEG-008, FAQ-004],
+     query: "¿qué consecuencias tiene atrasarme con el plan de pagos?"}
+  - {id: D-10, topic: negociacion, expected_section_ids: [POL-NEG-009],
+     query: "¿me pueden hacer una excepción y darme una rebaja mayor a la permitida?"}
+  - {id: D-11, topic: medios_pago, expected_section_ids: [PAY-MET-001],
+     query: "¿qué formas de pago aceptan?"}
+  - {id: D-12, topic: medios_pago, expected_section_ids: [PAY-MET-001],
+     query: "¿se puede abonar en efectivo en un Pago Fácil?"}
+  - {id: D-13, topic: medios_pago, expected_section_ids: [PAY-MET-002],
+     query: "si abono por débito automático, ¿cuándo se ve reflejado?"}
+  - {id: D-14, topic: medios_pago, expected_section_ids: [PAY-MET-003],
+     query: "¿aceptan bitcoin o cheques?"}
+  - {id: D-15, topic: medios_pago, expected_section_ids: [PAY-MET-004, FAQ-005],
+     query: "¿por dónde me llega el comprobante del acuerdo?"}
+  - {id: D-16, topic: medios_pago, expected_section_ids: [PAY-MET-005],
+     query: "quiero pasar el plan a débito en lugar de seguir con el cupón"}
+  - {id: D-17, topic: escalamiento, expected_section_ids: [ESC-001],
+     query: "ya hablé con mi abogado y voy a iniciar acciones legales"}
+  - {id: D-18, topic: escalamiento, expected_section_ids: [ESC-002],
+     query: "perdí el trabajo y estoy enfermo, no puedo afrontar nada ahora"}
+  - {id: D-19, topic: escalamiento, expected_section_ids: [ESC-003],
+     query: "el sistema dio error cuando registré el acuerdo, ¿quedó hecho o no?"}
+  - {id: D-20, topic: escalamiento, expected_section_ids: [ESC-004],
+     query: "¿en qué horario atienden los operadores?"}
+  - {id: D-21, topic: escalamiento, expected_section_ids: [ESC-005],
+     query: "me llaman a las once de la noche para cobrarme, ¿es normal?"}
+  - {id: D-22, topic: escalamiento, expected_section_ids: [ESC-006],
+     query: "quiero rectificar mis datos personales"}
+  - {id: D-23, topic: faq, expected_section_ids: [FAQ-002],
+     query: "¿cada cuánto actualizan el saldo que figura en la cuenta?"}
+  - {id: D-24, topic: faq, expected_section_ids: [FAQ-003],
+     query: "necesito mover el vencimiento de la cuota del mes que viene"}
+  - {id: D-25, topic: faq, expected_section_ids: [FAQ-007],
+     query: "¿si cancelo todo me sacan del Veraz?"}
+  - {id: D-26, topic: faq, expected_section_ids: [FAQ-009],
+     query: "¿cómo verifico que este chat no es una estafa?"}
+  - {id: D-27, topic: any, expected_section_ids: [FAQ-011, PAY-MET-002],
+     query: "ya transferí hace una semana y todavía me figura la deuda"}
+  - {id: D-28, topic: faq, expected_section_ids: [FAQ-014],
+     query: "¿me puedo arrepentir del plan el mismo día que lo acepté?"}
+  - {id: D-29, topic: any, expected_section_ids: [FAQ-015, ESC-001],
+     query: "ese monto que me reclaman está mal, no lo reconozco"}
+  - {id: D-30, topic: faq, expected_section_ids: [FAQ-013],
+     query: "¿por qué el total es mayor que el capital que debía?"}
+  - {id: D-31, topic: any, expected_section_ids: [FAQ-008, PAY-MET-003, PAY-MET-001],
+     query: "¿puedo pagar el plan en cuotas con mi Visa?"}
+  - {id: D-32, topic: any, expected_section_ids: [FAQ-006, POL-NEG-001],
+     query: "¿puedo sumar un segundo plan además del que ya tengo?"}
+
+negative:
+  - {id: DN-01, topic: any, query: "¿tienen sucursales para atención presencial?"}
+  - {id: DN-02, topic: any, query: "¿puedo pagar en dólares?"}
+  - {id: DN-03, topic: any, query: "¿la deuda prescribe a los cinco años?"}
+  - {id: DN-04, topic: any, query: "¿cuánto cobra de comisión Rapipago?"}
+  - {id: DN-05, topic: any, query: "¿tienen aplicación para el celular?"}
+  - {id: DN-06, topic: any, query: "¿me pueden embargar el sueldo?"}
+  - {id: DN-07, topic: any, query: "¿qué pasa con la deuda si el titular fallece?"}
+  - {id: DN-08, topic: any, query: "¿puedo pedir un préstamo nuevo con ustedes?"}
+  - {id: DN-09, topic: any, query: "¿me mandan la factura en papel a mi domicilio?"}
+  - {id: DN-10, topic: any, query: "¿el plan de pagos genera IVA?"}

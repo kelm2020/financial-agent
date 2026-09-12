@@ -1,0 +1,42 @@
+# HELD-OUT TEST SPLIT — the nine labeled queries of Anexo E.1, verbatim.
+# Nothing (thresholds, stopwords, stemming, prompts) may be tuned while looking at this file.
+# Calibration reads evals/retrieval_dev.yaml only.
+split: test
+effective_on: 2026-09-12
+
+positive:
+  - id: R-01
+    query: "¿en cuántas cuotas puedo pagar?"
+    topic: negociacion
+    expected_section_ids: [POL-NEG-004]
+  - id: R-02
+    query: "¿me hacen algún descuento si pago todo junto?"
+    topic: negociacion
+    expected_section_ids: [POL-NEG-003]
+  - id: R-03
+    query: "¿tengo que dar algo de entrada?"
+    topic: negociacion
+    expected_section_ids: [POL-NEG-005]
+  - id: R-04
+    query: "¿puedo pagar con transferencia y cuánto tarda?"
+    topic: medios_pago
+    expected_section_ids: [PAY-MET-002]
+  - id: R-05
+    query: "¿qué pasa si no llego a pagar una cuota?"
+    topic: negociacion
+    expected_section_ids: [POL-NEG-008]
+  - id: R-06
+    query: "quiero hablar con alguien de verdad"
+    topic: escalamiento
+    expected_section_ids: [ESC-001]
+
+negative:
+  - id: N-01
+    query: "¿cuál es la tasa nominal anual que aplican?"
+    topic: any
+  - id: N-02
+    query: "¿tienen convenio con mi sindicato?"
+    topic: any
+  - id: N-03
+    query: "¿esto lo puedo deducir de ganancias?"
+    topic: any

@@ -1,4 +1,4 @@
-.PHONY: setup up down migrate mock test coverage lint format check
+.PHONY: setup up down migrate ingest mock test test-rag embeddings-cache calibrate-rag eval-rag rerank-cache calibrate-rerank eval-rag-rerank coverage lint format check
 
 setup:
 	uv sync
@@ -12,17 +12,52 @@ down:
 migrate:
 	uv run python -m scripts.initialize_database
 
+ingest: migrate
+	uv run python -m scripts.ingest_knowledge
+
 mock:
 	uv run uvicorn mock_api.main:app --host 0.0.0.0 --port 8001 --reload
 
+# Unit suite only; needs neither network nor Postgres.
 test:
 	uv run pytest
 
+# Includes the pgvector integration suite (needs `make up`); it uses its own database.
+test-rag:
+	RUN_POSTGRES_TESTS=1 uv run pytest tests/test_retriever.py tests/test_rag_scripts.py tests/test_rag_integration.py
+
+# The only retrieval command that calls the embedding provider (needs OPENAI_API_KEY).
+embeddings-cache:
+	uv run python -m scripts.build_embedding_cache
+
+# Reads the dev split only and prints the RAG_MIN_DENSE_SCORE to configure.
+calibrate-rag:
+	uv run python -m scripts.calibrate_retrieval
+
+# Held-out test split, offline store and the real Postgres index.
+eval-rag: ingest
+	uv run python -m scripts.evaluate_retrieval --split test --store memory
+	uv run python -m scripts.evaluate_retrieval --split test --store postgres
+
+# Cross-encoder reranker (Cohere). Only rerank-cache calls the provider (needs COHERE_API_KEY);
+# calibration (dev only) and evaluation then run offline from data/rerank_cache.json.
+rerank-cache: ingest
+	uv run python -m scripts.build_rerank_cache --postgres
+
+calibrate-rerank:
+	uv run python -m scripts.calibrate_retrieval --reranker
+
+eval-rag-rerank: ingest
+	uv run python -m scripts.evaluate_retrieval --split test --store memory --reranker
+	uv run python -m scripts.evaluate_retrieval --split test --store postgres --reranker
+
+# Coverage is only meaningful with the Postgres store exercised (needs `make up`).
 coverage:
-	uv run pytest --cov
+	RUN_POSTGRES_TESTS=1 uv run pytest --cov
 
 lint:
 	uv run ruff check .
+	uv run ruff format --check .
 	uv run mypy
 
 format:
