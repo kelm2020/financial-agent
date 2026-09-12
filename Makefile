@@ -1,4 +1,4 @@
-.PHONY: setup up down migrate mock test test-f0 coverage lint format check
+.PHONY: setup up down migrate mock test coverage lint format check
 
 setup:
 	uv sync
@@ -18,9 +18,6 @@ mock:
 test:
 	uv run pytest
 
-test-f0:
-	uv run pytest tests/test_tools_contract.py
-
 coverage:
 	uv run pytest --cov
 
@@ -32,4 +29,3 @@ format:
 	uv run ruff format .
 
 check: lint coverage
-

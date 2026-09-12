@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Protocol, cast
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -53,12 +54,16 @@ def scope_for(customer_id: str, settings: Settings) -> CustomerScope:
 
 
 @pytest.fixture
-async def gateway(settings: Settings) -> CollectionsGateway:
+async def gateway(settings: Settings) -> AsyncIterator[CollectionsGateway]:
     transport = httpx.ASGITransport(app=app)
     client = httpx.AsyncClient(transport=transport, base_url="http://test")
     instance = CollectionsGateway(client=client, settings=settings)
     yield instance
     await client.aclose()
+
+
+class _HasCustomerId(Protocol):
+    customer_id: str
 
 
 def _assert_no_unsupported_constraints(schema: dict[str, Any]) -> None:
@@ -150,7 +155,7 @@ async def test_read_contracts_return_typed_data(
     result = await getattr(gateway, method)(scope)
     assert result.status == "ok"
     assert isinstance(result.data, BaseModel)
-    assert result.data.customer_id == "CUST-00125"
+    assert cast(_HasCustomerId, result.data).customer_id == "CUST-00125"
 
 
 async def test_zero_debt_is_a_valid_domain_result(

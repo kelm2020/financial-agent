@@ -61,4 +61,4 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-packages = ["app", "config", "mock_api", "scripts"]
+packages = ["app", "config", "mock_api", "scripts", "tests"]
