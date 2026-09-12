@@ -1,0 +1,44 @@
+{
+  "CUST-00125":[
+    {"opcion_id":"OPT-1P","tipo":"pago_unico","cuotas":1,"anticipo":0,
+     "quita_interes":6500.00,"recargo_pct":0,"monto_cuota":178000.00,
+     "monto_total":178000.00,"primer_vencimiento":"2026-09-20",
+     "valid_until":"2026-09-13T23:59:00-03:00",
+     "policy_refs":["POL-NEG-003","POL-NEG-004"]},
+
+    {"opcion_id":"OPT-3C","tipo":"cuotas","cuotas":3,"anticipo":0,
+     "quita_interes":0,"recargo_pct":0,"monto_cuota":61500.00,
+     "monto_total":184500.00,"primer_vencimiento":"2026-09-20",
+     "valid_until":"2026-09-13T23:59:00-03:00",
+     "policy_refs":["POL-NEG-004","POL-NEG-005"]},
+
+    {"opcion_id":"OPT-6C","tipo":"cuotas","cuotas":6,"anticipo":18450.00,
+     "quita_interes":0,"recargo_pct":8,"monto_financiado":166050.00,
+     "monto_cuota":29889.00,"monto_total":197784.00,
+     "primer_vencimiento":"2026-09-20","valid_until":"2026-09-13T23:59:00-03:00",
+     "policy_refs":["POL-NEG-004","POL-NEG-005"]},
+
+    {"opcion_id":"OPT-9C","tipo":"cuotas","cuotas":9,"anticipo":18450.00,
+     "quita_interes":0,"recargo_pct":16,"monto_financiado":166050.00,
+     "monto_cuota":21402.00,"monto_total":211068.00,
+     "primer_vencimiento":"2026-09-20","valid_until":"2026-09-13T23:59:00-03:00",
+     "policy_refs":["POL-NEG-004","POL-NEG-005","POL-NEG-006"]}
+  ],
+
+  "CUST-00212":{"opciones":[],"motivo":"segmento_prejudicial_requiere_operador",
+                "policy_refs":["POL-NEG-002","ESC-001"]},
+
+  "CUST-00377":[
+    {"opcion_id":"OPT-1P","tipo":"pago_unico","cuotas":1,"anticipo":0,
+     "quita_interes":0,"recargo_pct":0,"monto_cuota":38900.00,"monto_total":38900.00,
+     "primer_vencimiento":"2026-09-18","valid_until":"2026-09-13T23:59:00-03:00",
+     "policy_refs":["POL-NEG-003"]},
+
+    {"opcion_id":"OPT-2C","tipo":"cuotas","cuotas":2,"anticipo":0,
+     "quita_interes":0,"recargo_pct":0,"monto_cuota":19450.00,"monto_total":38900.00,
+     "primer_vencimiento":"2026-09-18","valid_until":"2026-09-13T23:59:00-03:00",
+     "policy_refs":["POL-NEG-004","POL-NEG-006"]}
+  ],
+
+  "CUST-00450":{"opciones":[],"motivo":"sin_deuda_vigente","policy_refs":["POL-NEG-001"]}
+}

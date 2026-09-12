@@ -1,0 +1,26 @@
+{
+  "CUST-00125":{"moneda":"ARS","saldo_total":184500.00,"capital":152000.00,
+    "intereses":32500.00,"dias_mora":63,"estado":"mora_media",
+    "vencimientos":[
+      {"periodo":"2026-07","monto":61500.00,"vencimiento":"2026-07-10","estado":"vencido"},
+      {"periodo":"2026-08","monto":61500.00,"vencimiento":"2026-08-10","estado":"vencido"},
+      {"periodo":"2026-09","monto":61500.00,"vencimiento":"2026-09-10","estado":"vencido"}],
+    "as_of":"2026-09-11T14:03:00-03:00"},
+
+  "CUST-00212":{"moneda":"ARS","saldo_total":1240000.00,"capital":890000.00,
+    "intereses":350000.00,"dias_mora":190,"estado":"prejudicial",
+    "vencimientos":[{"periodo":"2026-03","monto":1240000.00,"vencimiento":"2026-03-05",
+                     "estado":"vencido"}],
+    "as_of":"2026-09-11T14:03:00-03:00"},
+
+  "CUST-00377":{"moneda":"ARS","saldo_total":38900.00,"capital":35000.00,
+    "intereses":3900.00,"dias_mora":5,"estado":"mora_temprana",
+    "vencimientos":[{"periodo":"2026-09","monto":38900.00,"vencimiento":"2026-09-06",
+                     "estado":"vencido"}],
+    "as_of":"2026-09-11T14:03:00-03:00"},
+
+  "CUST-00450":{"moneda":"ARS","saldo_total":0.00,"capital":0.00,
+    "intereses":0.00,"dias_mora":0,"estado":"paid","vencimientos":[],
+    "ultimo_pago":{"fecha":"2026-09-03","monto":74200.00},
+    "as_of":"2026-09-11T14:03:00-03:00"}
+}

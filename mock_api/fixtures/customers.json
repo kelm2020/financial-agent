@@ -1,0 +1,15 @@
+[
+  {"customer_id":"CUST-00125","nombre":"María","apellido":"Gómez","idioma":"es-AR",
+   "identidad_verificada":true,"email_registrado":true,"marca_vulnerabilidad":false,
+   "acuerdos_activos":0,"acuerdos_previos":{"total":1,"incumplidos":0}},
+  {"customer_id":"CUST-00212","nombre":"Jorge","apellido":"Ferreyra","idioma":"es-AR",
+   "identidad_verificada":true,"email_registrado":true,"marca_vulnerabilidad":false,
+   "acuerdos_activos":0,"acuerdos_previos":{"total":3,"incumplidos":2},
+   "en_gestion_judicial":true},
+  {"customer_id":"CUST-00377","nombre":"Luciana","apellido":"Paz","idioma":"es-AR",
+   "identidad_verificada":false,"email_registrado":false,"marca_vulnerabilidad":false,
+   "acuerdos_activos":0,"acuerdos_previos":{"total":0,"incumplidos":0}},
+  {"customer_id":"CUST-00450","nombre":"Diego","apellido":"Sosa","idioma":"es-AR",
+   "identidad_verificada":true,"email_registrado":true,"marca_vulnerabilidad":false,
+   "acuerdos_activos":0,"acuerdos_previos":{"total":2,"incumplidos":0}}
+]
