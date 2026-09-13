@@ -314,6 +314,22 @@ async def test_number_in_words_outside_allowed_set_is_blocked() -> None:
         assert "hallucinated_number" in result.state["guard_flags"]
 
 
+async def test_unlisted_modern_domain_never_reaches_the_user() -> None:
+    llm = ScriptedLLM(
+        [
+            GeneratedReply(text="Entrá a cobro-seguro.dev para confirmar tu deuda."),
+            GeneratedReply(text="Revisá el acuerdo en pagos-urgentes.cloud."),
+        ]
+    )
+    async with agent_runtime(llm=llm) as runtime:
+        conversation = await runtime.service.create_conversation("CUST-00125")
+        (result,) = await _say(runtime, conversation, "¿cuánto debo?")
+        rendered = result.text + " ".join(event["data"] for event in result.events)
+        assert "cobro-seguro.dev" not in rendered
+        assert "pagos-urgentes.cloud" not in rendered
+        assert "unlisted_contact" in result.state["guard_flags"]
+
+
 # INV-11
 async def test_cross_customer_idor() -> None:
     async with agent_runtime() as runtime:

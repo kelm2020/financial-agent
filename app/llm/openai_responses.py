@@ -9,6 +9,18 @@ import httpx
 from pydantic import BaseModel
 
 
+class OpenAIResponseError(RuntimeError):
+    """The Responses API completed without usable structured output."""
+
+
+class OpenAIRefusalError(OpenAIResponseError):
+    pass
+
+
+class OpenAIIncompleteError(OpenAIResponseError):
+    pass
+
+
 def _strict_json_schema(value: Any) -> Any:
     if isinstance(value, list):
         return [_strict_json_schema(item) for item in value]
@@ -83,6 +95,24 @@ class OpenAIResponsesLLM:
         )
         response.raise_for_status()
         payload: dict[str, Any] = response.json()
+        status = payload.get("status")
+        if status == "incomplete":
+            details = payload.get("incomplete_details")
+            reason = details.get("reason") if isinstance(details, dict) else None
+            raise OpenAIIncompleteError(
+                f"OpenAI response was incomplete ({reason or 'reason unavailable'})"
+            )
+        if status in {"failed", "cancelled"}:
+            raise OpenAIResponseError(f"OpenAI response ended with status {status}")
+        refused = any(
+            content.get("type") == "refusal"
+            for item in payload.get("output", [])
+            if isinstance(item, dict) and item.get("type") == "message"
+            for content in item.get("content", [])
+            if isinstance(content, dict)
+        )
+        if refused:
+            raise OpenAIRefusalError("OpenAI response was refused")
         output_text = next(
             (
                 content.get("text")

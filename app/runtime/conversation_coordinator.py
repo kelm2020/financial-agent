@@ -111,7 +111,7 @@ class PostgresConversationRunCoordinator:
             try:
                 # Waiting for a pool slot uses the same budget: it never waits silently.
                 connection = await stack.enter_async_context(
-                    self._pool.connection(timeout=self._timeout_seconds)
+                    self._pool.connection(timeout=max(0.001, deadline - loop.time()))
                 )
             except PoolTimeout as exc:
                 raise busy from exc
@@ -121,12 +121,12 @@ class PostgresConversationRunCoordinator:
                     "otherwise the session lock would hold an idle transaction during LLM calls"
                 )
             while True:
+                if loop.time() >= deadline:
+                    raise busy
                 cursor = await connection.execute("SELECT pg_try_advisory_lock(%s)", (key,))
                 row = await cursor.fetchone()
                 if row is not None and row[0]:
                     break
-                if loop.time() >= deadline:
-                    raise busy
                 await asyncio.sleep(self._poll_interval_seconds)
             try:
                 yield

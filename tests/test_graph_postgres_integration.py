@@ -243,6 +243,27 @@ async def test_explicit_unlock_releases_even_without_pool_reset(agent_database_u
         await bare.close()
 
 
+async def test_pool_reset_releases_session_locks_before_connection_reuse(
+    agent_database_url: str,
+) -> None:
+    reset_pool = await _pool(agent_database_url, min_size=1, max_size=1)
+    key = advisory_lock_key(str(uuid4()))
+    try:
+        # Simulate an abnormal caller returning a session with a leaked lock. The pool hook is
+        # defense in depth and must sanitize it before another borrower sees the connection.
+        async with reset_pool.connection() as connection:
+            await connection.execute("SELECT pg_advisory_lock(%s)", (key,))
+        async with reset_pool.connection() as reused:
+            cursor = await reused.execute(
+                "SELECT count(*) FROM pg_locks "
+                "WHERE locktype = 'advisory' AND pid = pg_backend_pid()"
+            )
+            row = await cursor.fetchone()
+        assert row is not None and row[0] == 0
+    finally:
+        await reset_pool.close()
+
+
 async def test_pool_exhaustion_is_a_bounded_busy_error(agent_database_url: str) -> None:
     tiny = await _pool(agent_database_url, min_size=1, max_size=1)
     try:

@@ -23,7 +23,7 @@ INJECTION_PATTERNS = tuple(
         ),
         r"\b(?:modo|rol) (?:desarrollador|developer|dios|sin restricciones|jailbreak)\b",
         (
-            r"\b(?:revela|revelame|mostra|mostrame|imprime|decime|pasame|copia) "
+            r"\b(?:revela|revelame|mostra|mostrame|imprime|imprimi|decime|pasame|copia) "
             r"(?:el |tu |tus |las |los )?"
             r"(?:system prompt|prompt|instrucciones internas|instrucciones del sistema"
             r"|reglas internas)"
@@ -32,6 +32,7 @@ INJECTION_PATTERNS = tuple(
         r"\bignore (?:all|your|the|any) (?:previous |prior )?(?:instructions|rules)\b",
         r"\b(?:you are now|act as) (?:an? )?(?:unrestricted|jailbroken|dan)\b",
         r"\b(?:reveal|print|show) (?:your |the )?(?:system prompt|hidden instructions)\b",
+        r"\bcual es (?:exactamente )?(?:tu |el )?mensaje (?:de|del) sistema\b",
         r"<</?(?:datos_kb|datos_backend|system)",
     )
 )

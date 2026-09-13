@@ -6,7 +6,13 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
 from app.graph.context import GraphContext
-from app.graph.nodes.agreement import build_draft, confirm_gate, execute_agreement
+from app.graph.nodes.agreement import (
+    build_draft,
+    confirm_gate,
+    execute_agreement,
+    reconcile_agreement,
+)
+from app.graph.nodes.context import compact_context
 from app.graph.nodes.guards import (
     guard_classifier,
     guard_path,
@@ -25,6 +31,8 @@ from app.graph.state import AgentState
 
 
 def _after_hydrate(state: AgentState) -> str:
+    if state.get("agreement_status") == "unknown":
+        return "reconcile"
     if state.get("pending_draft") is not None:
         return "confirm"
     route = state.get("route_result")
@@ -64,9 +72,11 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Any:
     builder.add_node("build_draft", build_draft)
     builder.add_node("confirm_gate", confirm_gate)
     builder.add_node("execute_agreement", execute_agreement)
+    builder.add_node("reconcile_agreement", reconcile_agreement)
     builder.add_node("plan_response", plan_from_route)
     builder.add_node("escalate", escalate)
     builder.add_node("render_and_validate", render_and_validate)
+    builder.add_node("compact_context", compact_context)
 
     builder.add_edge(START, "guard_rules")
     builder.add_edge(START, "guard_classifier")
@@ -85,6 +95,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Any:
             "confirm": "confirm_gate",
             "draft": "build_draft",
             "escalate": "escalate",
+            "reconcile": "reconcile_agreement",
             "plan": "plan_response",
         },
     )
@@ -99,7 +110,9 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Any:
     )
     builder.add_edge("build_draft", "render_and_validate")
     builder.add_edge("execute_agreement", "render_and_validate")
+    builder.add_edge("reconcile_agreement", "render_and_validate")
     builder.add_edge("plan_response", "render_and_validate")
     builder.add_edge("escalate", "render_and_validate")
-    builder.add_edge("render_and_validate", END)
+    builder.add_edge("render_and_validate", "compact_context")
+    builder.add_edge("compact_context", END)
     return builder.compile(checkpointer=checkpointer)

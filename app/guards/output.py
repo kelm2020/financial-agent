@@ -17,15 +17,23 @@ from app.guards.numbers_es import numbers_in_words
 COMPLIANCE_LEXICON_PATH = Path(__file__).with_name("compliance_lexicon.yaml")
 
 _NUMBER = re.compile(r"(?<![\w])(?:\$\s*)?\d[\d.\s]*(?:,\d+)?\s*%?")
-_PHONE = re.compile(r"(?:\+\d[\d\s\-().]{8,}\d|\b0800[\s-]*\d{3}[\s-]*\d{4}\b|\b\d{10,13}\b)")
+_PHONE = re.compile(
+    r"(?:\+\d[\d\s\-().]{8,}\d|\b0800[\s-]*\d{3}[\s-]*\d{4}\b|"
+    r"\b\d{2}\s+\d{4}\s+\d{4}\b|\b\d{4}[\s-]\d{4}\b|\b\d{10,13}\b)"
+)
 _URL = re.compile(r"(?i)\b(?:https?://|www\.)\S+")
-# Scheme-less domains ("pagosya.com.ar", "bit.ly/x") are contacts too.
+# Any syntactically plausible scheme-less DNS name is a contact. A finite TLD list is unsafe:
+# new and private suffixes (for example .dev or .cloud) would otherwise bypass the allowlist.
 _BARE_DOMAIN = re.compile(
-    r"(?i)(?<![@\w.])(?:[a-z0-9-]+\.)+"
-    r"(?:com|net|org|ar|ly|io|app|info|co|me|gob|gov|link|site|online|xyz)"
-    r"(?:\.[a-z]{2})?\b(?:/[^\s]*)?"
+    r"(?i)(?<![@\w.])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z]{2,63}\b(?:/[^\s]*)?"
 )
 _EMAIL = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+_HANDLE = re.compile(r"(?i)(?<![\w@])@[a-z0-9_]{3,32}\b")
+_SPELLED_CONTACT = re.compile(
+    r"(?i)\b(?:[a-z0-9._+-]+\s+arroba\s+[a-z0-9-]+\s+punto\s+[a-z]{2,63}|"
+    r"cero\s+ocho\s+cero\s+cero\s+[a-z0-9 ]{2,32})\b"
+)
 _CUSTOMER_ID = re.compile(r"\bCUST-\d{5}\b", re.IGNORECASE)
 _OPTION_ID = re.compile(r"\bOPT-[A-Z0-9]{2,10}\b", re.IGNORECASE)
 _AGREEMENT_ID = re.compile(r"\bAGR-[A-Z0-9]{4,32}\b", re.IGNORECASE)
@@ -33,6 +41,25 @@ _SECTION_ID = re.compile(r"\b(?:POL-NEG|PAY-MET|ESC|FAQ)-\d{3}\b", re.IGNORECASE
 _SCALED_NUMBER = re.compile(
     r"(?<!\w)(\d+(?:[.,]\d+)?)\s+(mil|millon(?:es)?|millón)\b", re.IGNORECASE
 )
+_ABBREVIATED_NUMBER = re.compile(r"(?<!\w)(\d+(?:[.,]\d+)?)\s*([kKmM])\b")
+_ROMAN_QUANTITY = re.compile(
+    r"\b[IVXLCDM]+\b(?=\s*(?:cuotas?|pagos?|[/.-]))|"
+    r"(?<=[/.-])\b[IVXLCDM]+\b",
+    re.IGNORECASE,
+)
+_IMPLICIT_QUANTITIES: tuple[tuple[re.Pattern[str], Decimal], ...] = (
+    (re.compile(r"(?i)\bmedia\s+docena\b"), Decimal(6)),
+    (re.compile(r"(?i)\buna?\s+docena\b"), Decimal(12)),
+    (re.compile(r"(?i)\buna?\s+decena\b"), Decimal(10)),
+    (re.compile(r"(?i)\buna?\s+quincena\b"), Decimal(15)),
+    (re.compile(r"(?i)\buna?\s+bimestre\b"), Decimal(2)),
+    (re.compile(r"(?i)\b(?:un|una)\s+cuarto\b"), Decimal("0.25")),
+    (re.compile(r"(?i)\b(?:un|una)\s+veinteavo\b"), Decimal("0.05")),
+)
+_UNSUPPORTED_POLICY_CLAIM = re.compile(
+    r"(?i)\b(?:la\s+politica|las\s+reglas)\s+(?:permite|permiten|habilita|habilitan)\b"
+)
+_OBFUSCATED_IDENTIFIER = re.compile(r"(?i)\bc\s+u\s+s\s+t\s+(?:guion|-)\s+")
 _WORD_PERCENT = re.compile(
     r"(?i)(?<![\w,.])(\d+(?:,\d+)?|[a-záéíóú]+(?:\s+y\s+[a-záéíóú]+)?)\s+por\s+ciento\b"
 )
@@ -71,6 +98,10 @@ _WEEKDAYS = {
     "domingo": 6,
 }
 _WEEKDAY_DATE = re.compile(rf"(?i)\b({'|'.join(_WEEKDAYS)})\s+(0?[1-9]|[12]\d|3[01])\b")
+_RELATIVE_DATE = re.compile(
+    rf"(?i)\b(?:a\s+mediados\s+de\s+(?:{'|'.join(_MONTHS)})|"
+    rf"(?:el\s+)?proxim[oa]\s+(?:{'|'.join(_WEEKDAYS)})|mañana|pasado\s+mañana)\b"
+)
 
 
 class ComplianceCategory(BaseModel):
@@ -182,7 +213,23 @@ class OutputValidator:
         without_domains = _BARE_DOMAIN.sub(" ", without_urls)
         phones = _PHONE.findall(without_domains)
         remaining = _PHONE.sub(" ", without_domains)
-        if not all(self._contact_allowed(value) for value in (*emails, *urls, *domains, *phones)):
+        contacts = (*emails, *urls, *domains, *phones)
+        recognized_domains = {
+            domain.casefold()
+            for contact in contacts
+            for domain in _BARE_DOMAIN.findall(detection_skeleton(contact))
+        }
+        projected_domains = {
+            domain.casefold() for domain in _BARE_DOMAIN.findall(detection_skeleton(text))
+        }
+        handles = _HANDLE.findall(without_emails)
+        spelled_contacts = _SPELLED_CONTACT.findall(detection_skeleton(text))
+        if (
+            not all(self._contact_allowed(value) for value in contacts)
+            or projected_domains - recognized_domains
+            or not all(self._contact_allowed(value) for value in handles)
+            or bool(spelled_contacts)
+        ):
             flags.append("unlisted_contact")
 
         allowed_numbers = _canonical_set(context.allowed_numbers)
@@ -201,6 +248,13 @@ class OutputValidator:
             " ",
             _AGREEMENT_ID.sub(" ", _OPTION_ID.sub(" ", _CUSTOMER_ID.sub(" ", remaining))),
         )
+
+        if _RELATIVE_DATE.search(detection_skeleton(text_without_ids)) or _ROMAN_QUANTITY.search(
+            text_without_ids
+        ):
+            flags.append("hallucinated_number")
+        text_without_ids = _RELATIVE_DATE.sub(" ", text_without_ids)
+        text_without_ids = _ROMAN_QUANTITY.sub(" ", text_without_ids)
 
         allowed_dates = set(context.allowed_dates)
         for pattern in (_NUMERIC_DATE, _TEXT_DATE):
@@ -235,6 +289,20 @@ class OutputValidator:
                 flags.append("hallucinated_number")
         text_without_ids = _SCALED_NUMBER.sub(" ", text_without_ids)
 
+        for match in _ABBREVIATED_NUMBER.finditer(text_without_ids):
+            factor = 1000 if match.group(2).casefold() == "k" else 1_000_000
+            if _matched_number(match.group(1)) * factor not in numbers_ok:
+                flags.append("hallucinated_number")
+        text_without_ids = _ABBREVIATED_NUMBER.sub(" ", text_without_ids)
+
+        for pattern, _value in _IMPLICIT_QUANTITIES:
+            # These idioms are deliberately outside the generated-output language. Even where
+            # their numeric value happens to be allowed, they are too ambiguous to bind to a
+            # specific field ("un bimestre" could mean duration, cadence or deadline).
+            if pattern.search(text_without_ids):
+                flags.append("hallucinated_number")
+            text_without_ids = pattern.sub(" ", text_without_ids)
+
         for match in _WORD_PERCENT.finditer(text_without_ids):
             amount = match.group(1)
             values: tuple[Decimal, ...] = (
@@ -266,6 +334,10 @@ class OutputValidator:
             flags.append("foreign_identifier")
 
         skeleton = detection_skeleton(text)
+        if _UNSUPPORTED_POLICY_CLAIM.search(skeleton) and not context.cited_texts:
+            flags.append("uncited_claim")
+        if _OBFUSCATED_IDENTIFIER.search(skeleton):
+            flags.append("foreign_identifier")
         for flag, pattern in compliance_lexicon():
             if pattern.search(skeleton):
                 flags.append(flag)

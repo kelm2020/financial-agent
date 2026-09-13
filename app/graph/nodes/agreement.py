@@ -18,7 +18,13 @@ from app.policy.engine import (
     vencimiento_oferta,
 )
 from app.tools.client import agreement_idempotency_key
-from app.tools.schemas import AgreementDraft, MedioPago, PaymentOption
+from app.tools.schemas import (
+    AgreementDraft,
+    AgreementResponse,
+    MedioPago,
+    PaymentOption,
+    ToolResult,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,14 +249,30 @@ async def execute_agreement(state: AgentState, runtime: Runtime[GraphContext]) -
     if offer is None:
         return {"response_plan": ResponsePlan(kind="error", template_id="data_unavailable")}
     assert offer.read.customer is not None and offer.read.debt is not None
-    option = next((item for item in offer.allowed if item.opcion_id == draft.opcion_id), None)
+    # Reading the backend can consume the remaining confirmation window. Recompute every
+    # time-sensitive condition with a new instant immediately before the write.
+    write_now = context.clock.now()
+    if draft.expires_at <= write_now:
+        context.recorder.record_event("agreement_draft_expired", draft_id=draft.draft_id)
+        return {
+            **offer.read.updates,
+            "pending_draft": None,
+            "response_plan": ResponsePlan(kind="error", template_id="draft_expired"),
+        }
+    allowed_now = opciones_permitidas(
+        offer.read.customer,
+        offer.read.debt,
+        offer.read.options or [],
+        as_of=write_now,
+    )
+    option = next((item for item in allowed_now if item.opcion_id == draft.opcion_id), None)
     decision = (
         evaluar_propuesta(
             offer.read.customer,
             offer.read.debt,
             NegotiationProposal(opcion_elegida_id=draft.opcion_id, medio_pago=draft.medio_pago),
             offer.read.options or [],
-            as_of=now,
+            as_of=write_now,
         )
         if option is not None
         else None
@@ -277,6 +299,49 @@ async def execute_agreement(state: AgentState, runtime: Runtime[GraphContext]) -
         medio_pago=draft.medio_pago,
         idempotency_key=key,
     )
+    return await _handle_agreement_result(state, runtime, draft, key, result, offer.read.updates)
+
+
+async def reconcile_agreement(
+    state: AgentState, runtime: Runtime[GraphContext]
+) -> dict[str, object]:
+    """Resolve an unknown write by replaying the exact request under the same idempotency key."""
+    draft = state.get("unknown_draft")
+    key = state.get("unknown_write_key")
+    if not isinstance(draft, AgreementDraft) or not key:
+        runtime.context.recorder.record_event("agreement_reconciliation_state_invalid")
+        return {
+            "agreement_status": "none",
+            "unknown_draft": None,
+            "unknown_write_key": "",
+            "response_plan": ResponsePlan(kind="error", template_id="write_rejected"),
+        }
+    runtime.context.recorder.record_event(
+        "agreement_reconciliation_attempt", draft_id=draft.draft_id
+    )
+    runtime.context.recorder.record_tool(
+        "create_payment_agreement", draft_id=draft.draft_id, opcion_id=draft.opcion_id
+    )
+    result = await runtime.context.gateway.create_payment_agreement(
+        runtime.context.scope,
+        draft_id=draft.draft_id,
+        opcion_id=draft.opcion_id,
+        debt_fingerprint=draft.debt_fingerprint,
+        medio_pago=draft.medio_pago,
+        idempotency_key=key,
+    )
+    return await _handle_agreement_result(state, runtime, draft, key, result, {})
+
+
+async def _handle_agreement_result(
+    state: AgentState,
+    runtime: Runtime[GraphContext],
+    draft: AgreementDraft,
+    key: str,
+    result: ToolResult[AgreementResponse],
+    read_updates: dict[str, object],
+) -> dict[str, object]:
+    context = runtime.context
     if result.status == "ok" and result.data is not None:
         context.recorder.agreement_writes.append(
             {
@@ -291,15 +356,68 @@ async def execute_agreement(state: AgentState, runtime: Runtime[GraphContext]) -
             "agreement_created", draft_id=draft.draft_id, agreement_id=result.data.agreement_id
         )
         return {
-            **offer.read.updates,
+            **read_updates,
             "pending_draft": None,
             "agreement_status": "active",
             "agreement_id": result.data.agreement_id,
             "agreement_fingerprint": draft.debt_fingerprint,
+            "unknown_write_key": "",
+            "unknown_draft": None,
             "response_plan": ResponsePlan(
                 kind="result",
                 template_id="agreement_created",
                 facts={"agreement_id": result.data.agreement_id},
+            ),
+        }
+    if result.error_code == "AGREEMENT_EXISTS":
+        context.recorder.record_event(
+            "agreement_already_exists",
+            draft_id=draft.draft_id,
+            agreement_id=result.resource_id,
+        )
+        return {
+            **read_updates,
+            "pending_draft": None,
+            "agreement_status": "active",
+            "agreement_id": result.resource_id or "",
+            "agreement_fingerprint": draft.debt_fingerprint,
+            "unknown_write_key": "",
+            "unknown_draft": None,
+            "response_plan": ResponsePlan(
+                kind="result",
+                template_id="agreement_exists",
+                facts={"agreement_id": result.resource_id},
+            ),
+        }
+    if result.error_code == "IDEMPOTENCY_KEY_REUSE":
+        context.recorder.record_event(
+            "agreement_idempotency_key_reuse",
+            draft_id=draft.draft_id,
+            idempotency_key=key,
+            correlation_id=result.correlation_id,
+        )
+        context.recorder.record_tool("request_human", motivo="falla_tecnica")
+        transfer = await context.gateway.transfer_to_human(
+            context.scope,
+            conversation_id=state.get("conversation_id", "unknown"),
+            motivo="falla_tecnica",
+            resumen=(
+                "Error de idempotencia al confirmar un acuerdo. "
+                f"Draft {draft.draft_id}. Idempotency-Key {key}."
+            ),
+        )
+        return {
+            "pending_draft": None,
+            "agreement_status": "none",
+            "unknown_write_key": "",
+            "unknown_draft": None,
+            "response_plan": ResponsePlan(
+                kind="escalate",
+                template_id=(
+                    "write_program_error"
+                    if transfer.status == "ok"
+                    else "write_program_error_offer"
+                ),
             ),
         }
     if result.status in {"timeout", "upstream_error", "partial"}:
@@ -322,6 +440,7 @@ async def execute_agreement(state: AgentState, runtime: Runtime[GraphContext]) -
             "pending_draft": None,
             "agreement_status": "unknown",
             "unknown_write_key": key,
+            "unknown_draft": draft,
             "response_plan": ResponsePlan(
                 kind="escalate",
                 template_id="write_unknown" if transfer.status == "ok" else "write_unknown_offer",
@@ -329,5 +448,8 @@ async def execute_agreement(state: AgentState, runtime: Runtime[GraphContext]) -
         }
     return {
         "pending_draft": None,
+        "agreement_status": "none",
+        "unknown_write_key": "",
+        "unknown_draft": None,
         "response_plan": ResponsePlan(kind="error", template_id="write_rejected"),
     }

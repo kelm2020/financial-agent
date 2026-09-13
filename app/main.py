@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 from collections.abc import AsyncIterator
@@ -41,6 +42,24 @@ from config.settings import Settings, get_settings
 from mock_api.auth import TokenClaims, require_claims
 
 SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "system_v1.md"
+
+
+def _prompt_canary(settings: Settings) -> str:
+    configured = (
+        settings.system_prompt_canary.get_secret_value().strip()
+        if settings.system_prompt_canary is not None
+        else ""
+    )
+    if configured:
+        return configured
+    if settings.app_env == "production":
+        # Stable across replicas without publishing a default. Deployments should still provide
+        # SYSTEM_PROMPT_CANARY explicitly; this derives a deterministic fallback from an existing
+        # deployment secret so prompt caching is not fragmented during rollout.
+        secret = settings.mock_token_secret.get_secret_value()
+        digest = hashlib.sha256(f"prompt-canary|{secret}".encode()).hexdigest()[:24]
+        return f"ref-{digest}"
+    return f"ref-{secrets.token_hex(12)}"
 
 
 class CreateConversationBody(BaseModel):
@@ -93,12 +112,7 @@ def create_app(
     api_retriever: Retriever | None = retriever
     # Static per deployment (prompt caching, §12.5). Without explicit configuration each process
     # draws its own secret instead of using a value published in the repository.
-    canary = (
-        resolved.system_prompt_canary.get_secret_value()
-        if resolved.system_prompt_canary is not None
-        and resolved.system_prompt_canary.get_secret_value().strip()
-        else f"ref-{secrets.token_hex(12)}"
-    )
+    canary = _prompt_canary(resolved)
     base_prompt = _load_system_prompt()
     system_prompt = f"{base_prompt}\nReferencia interna de versión: {canary}"
     output_validator = OutputValidator(

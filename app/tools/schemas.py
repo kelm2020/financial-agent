@@ -223,3 +223,5 @@ class ToolResult[T](BaseModel):
     message_for_model: str
     retriable: bool = False
     correlation_id: str
+    error_code: str | None = None
+    resource_id: str | None = None

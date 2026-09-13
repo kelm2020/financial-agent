@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Message limits, rate limits and guard thresholds live in config/guardrails.yaml.
     conversation_lock_timeout_seconds: float = 10.0
-    # Static per deployment. Unset means each process draws a random one (never a repo value).
+    # Static per deployment. Production derives a stable fallback from MOCK_TOKEN_SECRET.
     system_prompt_canary: SecretStr | None = None
 
     # §7.4 fusion gate. The absolute dense gate is calibrated on evals/retrieval_dev.yaml only

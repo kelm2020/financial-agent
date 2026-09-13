@@ -308,6 +308,8 @@ async def test_idempotency_key_reuse_with_other_payload_is_rejected(
     )
     assert first.status == "ok"
     assert reused.status == "invalid_input"
+    assert reused.error_code == "IDEMPOTENCY_KEY_REUSE"
+    assert reused.resource_id is None
     assert "clave ya fue usada" in reused.message_for_model
 
 
@@ -333,7 +335,10 @@ async def test_active_agreement_conflict_returns_existing_business_outcome(
         **common,
     )
     assert first.status == "ok"
+    assert first.data is not None
     assert conflict.status == "rejected_by_policy"
+    assert conflict.error_code == "AGREEMENT_EXISTS"
+    assert conflict.resource_id == first.data.agreement_id
     assert "acuerdo activo" in conflict.message_for_model
 
 

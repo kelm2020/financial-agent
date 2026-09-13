@@ -7,6 +7,11 @@ from app.guards.normalize import detection_skeleton
 
 _OPTION = re.compile(r"\bOPT-[A-Z0-9]{2,10}\b", re.IGNORECASE)
 _INSTALLMENTS = re.compile(r"\b(\d{1,2})\s+cuotas?\b", re.IGNORECASE)
+_INSTALLMENT_CHOICE = re.compile(
+    r"(?:^|\b)(?:quiero|elijo|tomo) (?:la )?(?:opcion )?(?:de )?\d{1,2} cuotas?\b|"
+    r"\bme quedo con (?:la de )?\d{1,2} cuotas?\b|"
+    r"^dale(?:,)? (?:con )?(?:la de )?\d{1,2} cuotas?\b"
+)
 
 
 def _has(text: str, *values: str) -> bool:
@@ -23,13 +28,22 @@ def route_turn(text: str) -> RouteResult:
 
     if _has(normalized, "cuando derivan", "motivos de derivacion"):
         return RouteResult(intent="consulta_general", topic="escalamiento")
+    if _has(
+        normalized,
+        "reclamo",
+        "desconozco esta deuda",
+        "impugno",
+        "no estoy de acuerdo con el saldo",
+        "denuncia por el cobro",
+    ):
+        return RouteResult(intent="pedido_humano", escalation_motivo="reclamo")
     if _has(normalized, "abogado", "demanda", "judicial", "carta documento"):
         return RouteResult(intent="pedido_humano", escalation_motivo="amenaza_legal")
     if _has(normalized, "vulnerab", "me quede sin trabajo", "estoy enfermo", "estoy enferma"):
         return RouteResult(intent="pedido_humano", escalation_motivo="vulnerabilidad")
     if _has(normalized, "una persona", "un operador", "un asesor", "un humano", "con alguien"):
         return RouteResult(intent="pedido_humano", escalation_motivo="pedido_explicito")
-    choosing = _has(normalized, "quiero", "elijo", "opcion", "la de ", "me quedo", "tomo", "dale")
+    choosing = bool(_INSTALLMENT_CHOICE.search(normalized))
     if option_id or (installments is not None and choosing):
         return RouteResult(intent="aceptar_opcion", option_id=option_id, installments=installments)
     if _has(normalized, "lo que pueda", "no se cuanto", "algo puedo"):

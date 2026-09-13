@@ -47,6 +47,21 @@ _TENS = {
     "ochenta": 80,
     "noventa": 90,
 }
+_COMPACT_TENS = {
+    f"{tens}{unit}": tens_value + unit_value
+    for tens, tens_value in _TENS.items()
+    for unit, unit_value in _UNITS.items()
+    if 1 <= unit_value <= 9 and unit not in {"un", "una"}
+}
+_COMPACT_TENS.update(
+    {
+        f"{tens}i{unit}": tens_value + unit_value
+        for tens, tens_value in _TENS.items()
+        for unit, unit_value in _UNITS.items()
+        if 1 <= unit_value <= 9 and unit not in {"un", "una"}
+    }
+)
+_UNITS.update(_COMPACT_TENS)
 _HUNDREDS = {
     "cien": 100,
     "ciento": 100,

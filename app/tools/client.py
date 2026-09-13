@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -28,6 +29,8 @@ from app.tools.schemas import (
     TransferResponse,
 )
 from config.settings import Settings, get_settings
+
+_AGREEMENT_ID = re.compile(r"^AGR-[A-Z0-9]{4,32}$", re.IGNORECASE)
 
 
 @dataclass(slots=True)
@@ -369,6 +372,12 @@ class CollectionsGateway:
         detail = _safe_error_detail(response)
         code = str(detail.get("code", "UPSTREAM_ERROR"))
         message = str(detail.get("message", f"{operation} falló"))
+        raw_resource_id = detail.get("agreement_id")
+        resource_id = (
+            raw_resource_id
+            if isinstance(raw_resource_id, str) and _AGREEMENT_ID.fullmatch(raw_resource_id)
+            else None
+        )
         if response.status_code == 404:
             status_value: ToolStatus = "not_found"
             retriable = False
@@ -395,6 +404,8 @@ class CollectionsGateway:
             message_for_model=message,
             retriable=retriable,
             correlation_id=correlation_id,
+            error_code=code,
+            resource_id=resource_id,
         )
 
 

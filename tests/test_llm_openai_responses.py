@@ -7,7 +7,13 @@ import pytest
 
 from app.graph.state import GeneratedReply
 from app.guards.injection import GuardModelResult
-from app.llm.openai_responses import OpenAIResponsesLLM, _strict_json_schema
+from app.llm.openai_responses import (
+    OpenAIIncompleteError,
+    OpenAIRefusalError,
+    OpenAIResponseError,
+    OpenAIResponsesLLM,
+    _strict_json_schema,
+)
 
 
 async def test_openai_responses_adapter_requests_strict_schema_and_parses_output() -> None:
@@ -78,6 +84,43 @@ async def test_openai_responses_adapter_closes_owned_client() -> None:
     adapter = OpenAIResponsesLLM(api_key="sk-test", model="model-test")
     await adapter.aclose()
     assert adapter._client.is_closed
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        (
+            {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}},
+            OpenAIIncompleteError,
+        ),
+        (
+            {
+                "status": "completed",
+                "output": [{"type": "message", "content": [{"type": "refusal", "refusal": "no"}]}],
+            },
+            OpenAIRefusalError,
+        ),
+        ({"status": "failed", "error": {"message": "provider failure"}}, OpenAIResponseError),
+        ({"status": "cancelled"}, OpenAIResponseError),
+    ],
+)
+async def test_openai_responses_adapter_handles_terminal_states(
+    payload: dict[str, object], error: type[OpenAIResponseError]
+) -> None:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload)),
+        base_url="https://api.openai.test/v1",
+    )
+    adapter = OpenAIResponsesLLM(api_key="sk-test", model="model-test", client=client)
+    try:
+        with pytest.raises(error):
+            await adapter.complete(
+                task="response",
+                messages=({"role": "user", "content": "consulta"},),
+                response_model=GeneratedReply,
+            )
+    finally:
+        await client.aclose()
 
 
 def test_model_facing_guard_schema_avoids_unsupported_numeric_constraints() -> None:

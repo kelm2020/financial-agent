@@ -95,6 +95,9 @@ class AgentState(TypedDict, total=False):
     channel: Literal["chat", "voice"]
     messages: Annotated[list[AnyMessage], add_messages]
     turn_index: int
+    conversation_summary: str
+    summary_pending: list[str]
+    turns_since_summary: int
     last_user_text: str
     detection_text: str
     preflight_result: PreflightResult
@@ -123,4 +126,5 @@ class AgentState(TypedDict, total=False):
     agreement_id: str
     agreement_fingerprint: str
     unknown_write_key: str
+    unknown_draft: AgreementDraft | None
     http_status: int
