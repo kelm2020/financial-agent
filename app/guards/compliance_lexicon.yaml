@@ -1,0 +1,45 @@
+# Deterministic compliance lexicon (§10.1.4, layer 3). Versioned single source of truth.
+# Patterns are Python regular expressions matched against the detection skeleton of the
+# output: NFKC, invisible characters removed, UTS #39 confusables folded, accents removed,
+# casefolded. Write patterns without accents and in lowercase.
+version: "2026.09.1"
+categories:
+  prohibited_promise:
+    origin: "System prompt regla 3, FAQ-007, POL-NEG-009"
+    patterns:
+      - '\b(te|lo|la|los) (sacamos|sacan|saco|vamos a sacar) del (veraz|nosis|bcra|registro)'
+      - '\b(salis|vas a salir|saldras|quedas afuera) del (veraz|nosis|bcra|registro de deudores)'
+      - '\b(limpiamos|borramos|vamos a borrar|se borra) (tu|el) (historial|registro|antecedente)'
+      - '\bse (suspende|cae|levanta|frena) (el|la) (juicio|demanda|embargo)'
+      - '\b(seguro|seguramente|garantizado que) te (aprueban|aprobamos|dan) (la|una) (quita|refinanciacion)'
+      - '\bte garantizo (una|la) quita'
+  threat:
+    origin: "ESC-005, trato digno (art. 8 bis, Ley 24.240)"
+    patterns:
+      - '\b(te|le) (vamos a|van a|voy a) (embargar|demandar|denunciar|iniciar acciones)'
+      - '\bvamos a (llamar|contactar|avisar) a tu (trabajo|empleador|familia|vecinos)'
+      - '\b(vas a|podes) (ir preso|terminar preso|perder tu casa)'
+  artificial_urgency:
+    origin: "ESC-005; la vigencia real sale por plantilla desde valid_until"
+    patterns:
+      - '\bultima (oportunidad|chance)'
+      - '\bsolo (por|hasta) hoy\b'
+      - '\b(ahora o nunca|no hay otra oportunidad|se termina en minutos)'
+  human_impersonation:
+    origin: "§9.1 IDENTIDAD"
+    patterns:
+      - '\bsoy (una persona|humano|humana|una operadora|un operador|un asesor humano)'
+      - '\bno soy (un bot|una ia|un asistente virtual|una maquina)'
+      - '\bte habla [a-z]+ (del area|de cobranzas|del equipo)'
+      - '\bsoy [a-z]+,? (del area|de cobranzas|del equipo|de la empresa)'
+  personal_advice:
+    origin: "Fuera del rol; la consulta se redirige"
+    patterns:
+      - '\bte conviene (sacar|pedir|tomar) (un|una) (prestamo|credito|adelanto)'
+      - '\bno (pagues|pagues nada de) (la|tu) (tarjeta|alquiler|luz|otras deudas)'
+      - '\b(deja de pagar|prioriza pagar|prioriza esta deuda antes que)'
+  third_party_disclosure:
+    origin: "ESC-005, INV-16"
+    patterns:
+      - '\b(otra persona|otro cliente|tu (vecino|familiar|pareja)) (tiene|registra|figura con) (una )?deuda'
+      - '\b(tu vecino|tu familiar|tu pareja) es deudor'

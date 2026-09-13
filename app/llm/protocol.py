@@ -73,4 +73,6 @@ class ScriptedLLM:
             raise response
         if isinstance(response, response_model):
             return response
+        if isinstance(response, BaseModel):
+            return response_model.model_validate(response.model_dump())
         return response_model.model_validate(response)

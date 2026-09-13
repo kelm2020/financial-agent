@@ -146,3 +146,42 @@ class PolicyRetriever:
             source_chunk_ids=tuple(dict.fromkeys(hit.chunk.section_id for hit in hits)),
             evidence_score=evidence_score,
         )
+
+    async def search_for_generation(
+        self,
+        query: str,
+        *,
+        topic: Topic = "any",
+        effective_on: date,
+        limit: int = 4,
+    ) -> RetrievalResult:
+        """Max-recall retrieval for grounded generation.
+
+        Unlike :meth:`search`, this path does not turn a calibrated relevance score into an
+        abstention decision.  High-risk responses are instead accepted only when every emitted
+        sentence has an extractive citation verified by the output boundary.
+        """
+        if not query.strip():
+            return RetrievalResult(
+                status="no_evidence",
+                reason="La consulta está vacía.",
+                on_no_evidence=no_evidence_action(topic, []),
+            )
+        retrieval = await self.retrieve(query, topic=topic, effective_on=effective_on, limit=limit)
+        if not retrieval.hits:
+            return RetrievalResult(
+                status="no_evidence",
+                reason="No hay documentos aplicables.",
+                on_no_evidence=no_evidence_action(topic, []),
+            )
+        evidence_score = (
+            retrieval.hits[0].rerank_score
+            if self._evidence_gate == "rerank"
+            else retrieval.evidence
+        )
+        return RetrievalResult(
+            status="ok",
+            hits=tuple(retrieval.hits),
+            source_chunk_ids=tuple(dict.fromkeys(hit.chunk.section_id for hit in retrieval.hits)),
+            evidence_score=evidence_score,
+        )

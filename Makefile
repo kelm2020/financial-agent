@@ -1,4 +1,4 @@
-.PHONY: setup up down migrate ingest mock test test-rag embeddings-cache calibrate-rag eval-rag rerank-cache calibrate-rerank eval-rag-rerank coverage lint format check
+.PHONY: setup up down migrate ingest mock run cli test test-rag embeddings-cache calibrate-rag eval-rag rerank-cache calibrate-rerank eval-rag-rerank eval-guardrails coverage lint format check
 
 setup:
 	uv sync
@@ -18,9 +18,21 @@ ingest: migrate
 mock:
 	uv run uvicorn mock_api.main:app --host 0.0.0.0 --port 8001 --reload
 
-# Unit suite only; needs neither network nor Postgres.
+run:
+	uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+cli:
+	uv run python -m app.cli --token "$$TOKEN"
+
+# Unit suite only; needs neither network nor Postgres. tests/conftest.py ignores .env, clears
+# provider keys and blocks real HTTP transports, so a local key can never be used here.
 test:
 	uv run pytest
+
+# Level-A guardrail metrics (§10.1.7): dev for tuning, test held out. Numerator/denominator/95% bound.
+eval-guardrails:
+	uv run python -m scripts.evaluate_guardrails --split dev
+	uv run python -m scripts.evaluate_guardrails --split test
 
 # Includes the pgvector integration suite (needs `make up`); it uses its own database.
 test-rag:

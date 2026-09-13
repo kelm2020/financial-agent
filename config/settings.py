@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://postgres:postgres@localhost:5432/collections"
     mock_api_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8001")
     openai_api_key: SecretStr | None = None
+    openai_agent_model: str = "gpt-5-nano"
     cohere_api_key: SecretStr | None = None
 
     mock_token_secret: SecretStr = SecretStr("local-development-secret-change-me")
@@ -23,6 +24,11 @@ class Settings(BaseSettings):
     tool_retry_attempts: int = 3
     circuit_breaker_threshold: int = 3
     circuit_breaker_reset_seconds: float = 30.0
+
+    # Message limits, rate limits and guard thresholds live in config/guardrails.yaml.
+    conversation_lock_timeout_seconds: float = 10.0
+    # Static per deployment. Unset means each process draws a random one (never a repo value).
+    system_prompt_canary: SecretStr | None = None
 
     # §7.4 fusion gate. The absolute dense gate is calibrated on evals/retrieval_dev.yaml only
     # (make calibrate-rag) and must never be tuned against the held-out test split.

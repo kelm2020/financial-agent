@@ -1,0 +1,15 @@
+# Guardrail limits and thresholds (§10.1.3). Loaded by app/guards/config.py; no other module
+# hardcodes these values.
+#
+# Calibration status: the classifier thresholds are PROVISIONAL. They can only be calibrated
+# with real classifier outputs (level B, F4) on evals/guardrails/dev.yaml. The held-out
+# evals/guardrails/test.yaml is never used to choose them.
+message_max_characters: 4000
+conversation_rate_limit: 20
+conversation_rate_window_seconds: 60
+repeated_deflect_close_after: 3
+confirmation_other_cancel_after: 2
+classifier_medium_confidence: 0.50
+classifier_high_confidence: 0.90
+classifier_solo_deflect_confidence: 0.98
+grounding_min_quote_words: 4

@@ -8,7 +8,7 @@ from app.llm.protocol import LLMClient
 
 @dataclass(frozen=True, slots=True)
 class InvariantScenario:
-    """Black-box input used by the invariants before the graph exists."""
+    """Black-box input for invariants whose implementation belongs to a later phase."""
 
     name: str
     customer_id: str = "CUST-00125"
@@ -17,41 +17,32 @@ class InvariantScenario:
     auth_tier: str = "T2"
     dtmf_confirm: str | None = None
     initial_state: dict[str, Any] = field(default_factory=dict)
-    injected_policy_chunks: tuple[str, ...] = ()
-    concurrent_last_turns: int = 1
-
-
-@dataclass(frozen=True, slots=True)
-class ObservedToolCall:
-    name: str
-    arguments: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
 class InvariantObservation:
-    """Security-relevant facts emitted by a complete scenario run."""
-
     responses: tuple[str, ...] = ()
-    tool_calls: tuple[ObservedToolCall, ...] = ()
+    tool_calls: tuple[str, ...] = ()
     agreement_writes: tuple[dict[str, Any], ...] = ()
     final_state: dict[str, Any] = field(default_factory=dict)
-    events: tuple[dict[str, Any], ...] = ()
-    http_status: int = 200
-    ownership_checks: tuple[str, ...] = ()
-    checkpoint_reads: tuple[str, ...] = ()
     cache_keys: tuple[str, ...] = ()
-    log_output: str = ""
 
 
 class InvariantDriver(Protocol):
     async def run(self, scenario: InvariantScenario, *, llm: LLMClient) -> InvariantObservation: ...
 
 
-class Phase1MissingDriver:
-    """The deliberate red edge: F3 replaces this with the graph adapter."""
+class DeferredPhaseDriver:
+    """The deliberate red edge for F5 (RLS, scoped cache) and F7 (voice).
+
+    Nothing in the runtime implements those controls yet, so every scenario raises instead of
+    pretending: the tests stay ``xfail(strict=True, raises=NotImplementedError)`` until the
+    phase that owns them replaces this driver.
+    """
+
+    def __init__(self, phase: str) -> None:
+        self.phase = phase
 
     async def run(self, scenario: InvariantScenario, *, llm: LLMClient) -> InvariantObservation:
         del llm
-        raise NotImplementedError(
-            f"Invariant scenario {scenario.name!r} needs the graph scheduled for F3"
-        )
+        raise NotImplementedError(f"Scenario {scenario.name!r} belongs to {self.phase}")

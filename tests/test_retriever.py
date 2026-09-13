@@ -403,6 +403,50 @@ async def test_reranker_sees_all_candidates_and_truncates_to_limit(
     assert all(hit.rerank_score == 0.8 for hit in result.hits)
 
 
+async def test_generation_retrieval_prefers_recall_and_keeps_grounding_evidence(
+    hashing_index: tuple[InMemoryHybridStore, HashingEmbeddingClient],
+) -> None:
+    store, embeddings = hashing_index
+    retriever = _retriever(store, embeddings, min_rrf_score=2.0, min_dense_score=2.0)
+
+    gated = await retriever.search("anticipo", topic="negociacion", effective_on=REFERENCE_DATE)
+    generated = await retriever.search_for_generation(
+        "anticipo", topic="negociacion", effective_on=REFERENCE_DATE
+    )
+    empty = await retriever.search_for_generation(
+        " ", topic="negociacion", effective_on=REFERENCE_DATE
+    )
+    no_documents = await _retriever(InMemoryHybridStore(), embeddings).search_for_generation(
+        "anticipo", topic="negociacion", effective_on=REFERENCE_DATE
+    )
+
+    assert gated.status == "no_evidence"
+    assert generated.status == "ok"
+    assert generated.hits and generated.source_chunk_ids
+    assert generated.evidence_score is not None
+    assert (empty.status, no_documents.status) == ("no_evidence", "no_evidence")
+
+
+async def test_generation_retrieval_reports_reranker_score(
+    hashing_index: tuple[InMemoryHybridStore, HashingEmbeddingClient],
+) -> None:
+    store, embeddings = hashing_index
+    retriever = _retriever(
+        store,
+        embeddings,
+        reranker=FixedScoreReranker(0.12),
+        evidence_gate="rerank",
+        min_rerank_score=0.99,
+    )
+
+    result = await retriever.search_for_generation(
+        "anticipo", topic="negociacion", effective_on=REFERENCE_DATE
+    )
+
+    assert result.status == "ok"
+    assert result.evidence_score == 0.12
+
+
 def test_no_evidence_action_is_graded_by_risk() -> None:
     faq_hit = hit(corpus()[-1])
     policy_hit = hit(corpus()[0])

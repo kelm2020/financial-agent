@@ -26,6 +26,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/collections
       # The Postgres store has no coverage exclusion: the integration suite must run here.
       RUN_POSTGRES_TESTS: "1"
+      LANGGRAPH_STRICT_MSGPACK: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

@@ -97,6 +97,29 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  agent:
+    build: .
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/collections
+      MOCK_API_URL: http://mock:8001
+      MOCK_TOKEN_SECRET: ${MOCK_TOKEN_SECRET:-local-development-secret-change-me}
+      SYSTEM_PROMPT_CANARY: ${SYSTEM_PROMPT_CANARY:-}
+      LANGGRAPH_STRICT_MSGPACK: "true"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mock:
+        condition: service_healthy
+
   clickhouse:
     image: clickhouse/clickhouse-server:25.12
     environment:
