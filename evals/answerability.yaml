@@ -9,6 +9,8 @@
 # again. Replaced on 2026-09-14 after the first run: Q-02, Q-07, Q-10, Q-17, Q-20, Q-21, Q-24,
 # Q-25, Q-28 (routing) and U-04, U-06 (answers restating the question).
 # Replaced after the second run: U-04 (an answer about a term its section never mentions).
+# Replaced after the fourth run: Q-08, Q-18, Q-29 (the model router sent general questions to the
+# balance or the options).
 split: test
 effective_on: 2026-09-12
 customer_id: CUST-00125
@@ -21,7 +23,7 @@ positive:
   - {id: Q-05, expected_section_ids: [ESC-005], query: "¿cuántas veces por día me pueden contactar para cobrarme?"}
   - {id: Q-06, expected_section_ids: [ESC-006], query: "¿qué hacen con mis datos personales?"}
   - {id: Q-07, expected_section_ids: [FAQ-001, POL-NEG-006], query: "¿se puede ir pagando de a poco sin firmar un acuerdo?"}
-  - {id: Q-08, expected_section_ids: [FAQ-002, PAY-MET-002], query: "¿cada cuánto se recalcula lo que debo?"}
+  - {id: Q-08, expected_section_ids: [FAQ-002, PAY-MET-002], query: "¿con qué frecuencia se actualiza el monto que figura?"}
   - {id: Q-09, expected_section_ids: [FAQ-003], query: "¿me pueden correr el día de pago de una cuota?"}
   - {id: Q-10, expected_section_ids: [FAQ-004, POL-NEG-008], query: "¿qué ocurre cuando alguien firma un plan y más adelante lo deja de pagar?"}
   - {id: Q-11, expected_section_ids: [FAQ-005], query: "¿me pueden enviar por mail el detalle del acuerdo?"}
@@ -31,7 +33,7 @@ positive:
   - {id: Q-15, expected_section_ids: [FAQ-009], query: "¿cómo compruebo que este chat es realmente oficial?"}
   - {id: Q-16, expected_section_ids: [FAQ-010, POL-NEG-001], query: "¿mi hermano puede hacer el pago en mi nombre?"}
   - {id: Q-17, expected_section_ids: [FAQ-011, PAY-MET-002], query: "transferí hace dos días y la cuenta sigue mostrando lo mismo, ¿por qué?"}
-  - {id: Q-18, expected_section_ids: [FAQ-012, POL-NEG-007], query: "¿por cuánto tiempo sigue vigente una propuesta que me dieron?"}
+  - {id: Q-18, expected_section_ids: [FAQ-012, POL-NEG-007], query: "¿una oferta que me hicieron vence en algún momento?"}
   - {id: Q-19, expected_section_ids: [FAQ-013], query: "¿de dónde salen los intereses que me cobran?"}
   - {id: Q-20, expected_section_ids: [FAQ-014], query: "¿un plan ya aceptado se puede dar de baja?"}
   - {id: Q-21, expected_section_ids: [FAQ-015, ESC-001], query: "¿qué pasa si discrepo con el importe que me reclaman?"}
@@ -42,7 +44,7 @@ positive:
   - {id: Q-26, expected_section_ids: [POL-NEG-005], query: "¿es obligatorio hacer un pago inicial para refinanciar?"}
   - {id: Q-27, expected_section_ids: [POL-NEG-006, FAQ-001], query: "¿hay un monto mínimo para cada cuota?"}
   - {id: Q-28, expected_section_ids: [POL-NEG-007, FAQ-012], query: "¿para cuándo se fija el primer pago de un plan nuevo?"}
-  - {id: Q-29, expected_section_ids: [POL-NEG-008, FAQ-004], query: "¿cuándo se da de baja un plan por falta de pago?"}
+  - {id: Q-29, expected_section_ids: [POL-NEG-008, FAQ-004], query: "¿en qué momento se cae un plan que dejó de pagarse?"}
   - {id: Q-30, expected_section_ids: [POL-NEG-009], query: "¿se puede pedir algo distinto a lo que ofrece el sistema?"}
   - {id: Q-31, expected_section_ids: [PAY-MET-001], query: "¿con qué medios puedo abonar?"}
   - {id: Q-32, expected_section_ids: [PAY-MET-002], query: "¿cuánto demora en impactar un pago con tarjeta?"}

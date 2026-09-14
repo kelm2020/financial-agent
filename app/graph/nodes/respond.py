@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -25,7 +26,9 @@ from app.guards.codes import GuardFlag
 from app.guards.config import guardrail_config
 from app.guards.grounding import (
     CITATION_LABEL,
+    GroundedClaim,
     GroundedReply,
+    content_stems,
     plain_text,
     split_sentences,
     verify_grounded_reply,
@@ -40,6 +43,27 @@ from app.rag.models import SearchHit
 from app.tools.schemas import AgreementDraft, EscalationMotivo, OptionsSnapshot, PaymentOption
 
 _CITATION = re.compile(r"\[((?:POL-NEG|PAY-MET|ESC|FAQ)-\d{3})\]", re.IGNORECASE)
+# Section ids inside the knowledge base prose ("(POL-NEG-006)", "(ver ESC-001)") are links between
+# sections: they decide which sections may answer together, but the customer only reads the
+# bracketed citation that closes the answer.
+_SECTION_ID = re.compile(r"\b(?:POL-NEG|PAY-MET|ESC|FAQ)-\d{3}\b", re.IGNORECASE)
+_INLINE_REFERENCE = re.compile(
+    r"\s*\((?:ver\s+)?(?:POL-NEG|PAY-MET|ESC|FAQ)-\d{3}\)", re.IGNORECASE
+)
+# Sentences about the agent or about the policy document itself are instructions for whoever
+# applies the policy, not policy for the customer ("…fuera de los límites de este documento…").
+_INTERNAL_TERMS = ("agente", "este documento")
+
+
+def _is_internal(sentence: str) -> bool:
+    skeleton = detection_skeleton(sentence)
+    return any(term in skeleton for term in _INTERNAL_TERMS)
+
+
+def _customer_text(sentence: str) -> str:
+    return " ".join(_INLINE_REFERENCE.sub("", sentence).split())
+
+
 _POLICY_TERMS = ("cuota", "quita", "anticipo", "plazo", "medio de pago", "acreditacion")
 _DIGIT = re.compile(r"\d")
 _READ_ONLY_DURING_DRAFT = frozenset({"consulta_general", "consulta_deuda", "negociacion"})
@@ -923,16 +947,17 @@ def policy_extract(plan: ResponsePlan, state: AgentState) -> Candidate | None:
     )
     if not sentences:
         return None
+    visible = [_customer_text(sentence) for sentence in sentences]
     claims = GroundedReply.model_validate(
         {
             "text": "",
             "claims": [
-                {"sentence": sentence, "section_id": hit.chunk.section_id, "quote": sentence}
-                for sentence in sentences
+                {"sentence": shown, "section_id": hit.chunk.section_id, "quote": sentence}
+                for shown, sentence in zip(visible, sentences, strict=True)
             ],
         }
     ).claims
-    return Candidate(text=f"{' '.join(sentences)} [{hit.chunk.section_id}]", claims=claims)
+    return Candidate(text=f"{' '.join(visible)} [{hit.chunk.section_id}]", claims=claims)
 
 
 _EXTRACT_MAX_SENTENCES = 3
@@ -952,7 +977,7 @@ def _relevant_sentences(
 ) -> list[str]:
     """Customer-facing subset of a chunk: no instructions addressed to the agent and, for prose,
     only the sentences that share terms with the question, in their original order (§9.1)."""
-    visible = [sentence for sentence in sentences if "agente" not in detection_skeleton(sentence)]
+    visible = [sentence for sentence in sentences if not _is_internal(sentence)]
     if keep_all:
         return visible
     terms = _stems(query)
@@ -1098,7 +1123,12 @@ def validate_candidate(
         and grounding is not None
         and (plan.risk == "high" or plan.generation is not None)
     ):
-        sources = {hit.chunk.section_id: hit.chunk.content for hit in state.get("retrieved", [])}
+        # The heading is customer-facing text too ("¿Puede pagar un familiar por mí?"): without it
+        # a faithful "Sí, se puede pagar por transferencia" looked like an echo of the question.
+        sources = {
+            hit.chunk.section_id: f"{hit.chunk.heading}\n{hit.chunk.content}"
+            for hit in state.get("retrieved", [])
+        }
         flags.extend(
             verify_grounded_reply(grounding, sources, question=state.get("last_user_text", ""))
         )
@@ -1113,16 +1143,15 @@ GROUNDED_INSTRUCTION = (
     "\nRespondé sólo con oraciones respaldadas. Cada claim lleva una oración completa para el "
     "cliente (sentence), el section_id de su fuente y una cita textual (quote) copiada tal cual "
     "del material, de al menos cuatro palabras. La respuesta visible se arma sólo con esas "
-    "oraciones: no agregues introducciones ni cierres. Si el material no responde lo que "
+    "oraciones: no agregues introducciones ni cierres. Usá sólo las secciones que responden lo "
+    "que pregunta el cliente y no sumes información de otras. Si el material no responde lo que "
     "pregunta el cliente, devolvé text y claims vacíos en lugar de responder sobre otro tema."
 )
 
 
 def _customer_facing(content: str) -> str:
     return " ".join(
-        sentence
-        for sentence in split_sentences(plain_text(content))
-        if "agente" not in detection_skeleton(sentence)
+        sentence for sentence in split_sentences(plain_text(content)) if not _is_internal(sentence)
     )
 
 
@@ -1176,19 +1205,89 @@ async def _generate(
     if not grounded.claims:
         return Candidate(text=normalize_visible(grounded.text))
     # The claims are the answer. The visible text is composed from their sentences, so a preamble
-    # or a sentence the model did not back with a quote never reaches the customer.
-    sentences = [_as_sentence(claim.sentence) for claim in grounded.claims]
+    # or a sentence the model did not back with a quote never reaches the customer. Internal
+    # sentences, sections unrelated to the one that answers, restatements and anything past the
+    # first claims are dropped (local chat: FAQ-003 answered with POL-NEG-009 and PAY-MET-005).
+    visible = [
+        claim
+        for claim in grounded.claims
+        if not (_is_internal(claim.sentence) or _is_internal(claim.quote))
+    ]
+    focused = _focused_claims(visible, state.get("retrieved", []))
+    claims = [
+        claim.model_copy(update={"sentence": _as_sentence(claim.sentence)})
+        for claim in _distinct_claims(focused)[:_MAX_CLAIMS]
+    ]
+    if len(claims) < len(grounded.claims):
+        runtime.context.recorder.record_event(
+            "claims_trimmed",
+            received=len(grounded.claims),
+            internal=len(grounded.claims) - len(visible),
+            unrelated_section=len(visible) - len(focused),
+            kept=len(claims),
+        )
+    if not claims:
+        # Nothing customer-facing about the answer was claimed: handled as an abstention.
+        return Candidate(text="")
+    sentences = [claim.sentence for claim in claims]
     backed = {_sentence_key(sentence) for sentence in sentences}
     if any(_sentence_key(item) not in backed for item in split_sentences(grounded.text)):
         runtime.context.recorder.record_event("unclaimed_text_dropped")
-    sections = dict.fromkeys(claim.section_id.upper() for claim in grounded.claims)
+    sections = dict.fromkeys(claim.section_id.upper() for claim in claims)
     labels = " ".join(f"[{section}]" for section in sections)
     text = f"{' '.join(sentence for sentence in sentences if sentence)} {labels}"
-    return Candidate(text=normalize_visible(text), claims=grounded.claims)
+    return Candidate(text=normalize_visible(text), claims=tuple(claims))
+
+
+_MAX_CLAIMS = 3
+
+
+def _focused_claims(
+    claims: Sequence[GroundedClaim], retrieved: Sequence[SearchHit]
+) -> list[GroundedClaim]:
+    """Claims about the answer, not about everything retrieved.
+
+    The primary section is the best-ranked retrieved section the model cited. Another section
+    stays only when the knowledge base links the two: the primary refers to it ("según el plazo
+    de cada medio (PAY-MET-002)") or it refers to the primary (an FAQ restating a policy). A claim
+    citing a section that was not retrieved is kept, so validation rejects it instead of hiding it.
+    """
+    rank: dict[str, int] = {}
+    references: dict[str, set[str]] = {}
+    for index, hit in enumerate(retrieved):
+        section = hit.chunk.section_id.upper()
+        rank.setdefault(section, index)
+        references.setdefault(section, set()).update(
+            found.upper() for found in _SECTION_ID.findall(hit.chunk.content)
+        )
+    cited = [claim.section_id.upper() for claim in claims if claim.section_id.upper() in rank]
+    if not cited:
+        return list(claims)
+    primary = min(cited, key=rank.__getitem__)
+    linked = {primary} | references[primary]
+    linked |= {section for section, found in references.items() if primary in found}
+    return [
+        claim
+        for claim in claims
+        if claim.section_id.upper() not in rank or claim.section_id.upper() in linked
+    ]
+
+
+def _distinct_claims(claims: Sequence[GroundedClaim]) -> list[GroundedClaim]:
+    """Claims in order, without one whose terms mostly repeat an earlier kept claim."""
+    kept: list[GroundedClaim] = []
+    seen: list[set[str]] = []
+    for claim in claims:
+        terms = content_stems(claim.sentence)
+        if any(terms and len(terms & other) >= 0.8 * min(len(terms), len(other)) for other in seen):
+            continue
+        kept.append(claim)
+        seen.append(terms)
+    return kept
 
 
 def _as_sentence(text: str) -> str:
-    sentence = " ".join(CITATION_LABEL.sub(" ", text).split())
+    sentence = " ".join(CITATION_LABEL.sub(" ", _customer_text(text)).split())
     return sentence if not sentence or sentence[-1] in ".!?:" else f"{sentence}."
 
 
@@ -1218,10 +1317,15 @@ async def _materialize(
                 runtime.context.recorder.record_event("response_model_unavailable")
                 break
             if plan.kind == "policy" and not candidate.claims and not candidate.text.strip():
-                # The model returned nothing to back: the material does not answer the question.
-                # Any text, even without claims, is still validated (a leak must be flagged).
-                text, template = await _abstain(plan, state, runtime)
-                return text, flags, template
+                # The model returned nothing to back. Any text, even without claims, is still
+                # validated (a leak must be flagged). With evidence above the calibrated gate the
+                # verbatim extract still answers (local chat: "¿Puedo cambiar la fecha de
+                # vencimiento de una cuota?" got "No encontré esa información" at 0.70).
+                runtime.context.recorder.record_event("policy_model_abstained")
+                if not plan.facts.get("extract_allowed", True):
+                    text, template = await _abstain(plan, state, runtime)
+                    return text, flags, template
+                break
             rejected = validate_candidate(
                 candidate.text,
                 plan,

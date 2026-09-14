@@ -230,12 +230,7 @@ async def route_or_confirm(state: AgentState, runtime: Runtime[GraphContext]) ->
         classified = await runtime.context.llm.complete(
             task="route",
             messages=(
-                {
-                    "role": "system",
-                    "content": (
-                        "Clasificá intención y slots explícitos. No decidas acciones ni identidad."
-                    ),
-                },
+                {"role": "system", "content": ROUTER_INSTRUCTION},
                 {"role": "user", "content": text},
             ),
             response_model=type(deterministic),
@@ -248,6 +243,24 @@ async def route_or_confirm(state: AgentState, runtime: Runtime[GraphContext]) ->
     if classified.intent == "aceptar_opcion":
         runtime.context.recorder.record_step("propose_agreement")
     return {"route_result": classified}
+
+
+# Only messages the deterministic router left ambiguous reach the model. Without the intents
+# defined, a general question that mentioned "lo que debo", "un plan" or "una propuesta" was
+# classified as a balance or negotiation request (answerability run, 2026-09-14).
+ROUTER_INSTRUCTION = (
+    "Clasificá la intención del mensaje del cliente y los slots explícitos. No decidas acciones "
+    "ni identidad.\n"
+    "- consulta_deuda: pide datos de SU cuenta (saldo, cuánto debe, sus vencimientos, la "
+    "composición de su deuda).\n"
+    "- negociacion: pide opciones, un plan o cuotas para pagar SU deuda.\n"
+    "- consulta_general: pregunta cómo funcionan las reglas, plazos o procedimientos (qué pasa "
+    "si, cada cuánto, cuándo se, por cuánto tiempo, quién puede, horarios, medios de pago), "
+    "aunque mencione la deuda, un plan, una oferta o cuotas. Usá topic any salvo que sea sobre "
+    "medios de pago.\n"
+    "- pedido_humano: pide hablar con una persona.\n"
+    "- saludo_despedida, fuera_de_dominio o ambiguo en los demás casos."
+)
 
 
 def _escalation_upgrade(

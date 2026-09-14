@@ -28,9 +28,21 @@ async def _ask(runtime: Any, text: str) -> Any:
     )
 
 
+async def test_model_abstention_above_the_gate_answers_with_the_extract() -> None:
+    # Local chat: "¿Puedo cambiar la fecha de vencimiento de una cuota?" (evidence 0.70) got
+    # "No encontré esa información" when the model returned an empty reply.
+    llm = ScriptedLLM([_EMPTY])
+    retriever = StaticRetriever([corpus_chunk("FAQ-003")])
+    async with agent_runtime(llm=llm, retriever=retriever) as runtime:
+        result = await _ask(runtime, "hola ¿Puedo cambiar la fecha de vencimiento de una cuota?")
+    assert [call.task for call in llm.calls] == ["grounded_response"]
+    assert result.text.endswith("[FAQ-003]") and "48 horas" in result.text
+    assert {"type": "policy_model_abstained"} in runtime.recorder.events
+
+
 async def test_model_abstention_offers_a_person_for_a_low_risk_question() -> None:
     llm = ScriptedLLM([_EMPTY])
-    retriever = StaticRetriever([corpus_chunk("PAY-MET-001")])
+    retriever = BelowGateRetriever([corpus_chunk("PAY-MET-001")])
     async with agent_runtime(llm=llm, retriever=retriever) as runtime:
         result = await _ask(runtime, "¿puedo pagar con tarjeta?")
     # Max recall: the route's topic sets the risk but never filters the sections searched.
@@ -43,7 +55,7 @@ async def test_model_abstention_offers_a_person_for_a_low_risk_question() -> Non
 
 async def test_model_abstention_derives_a_high_risk_question() -> None:
     llm = ScriptedLLM([_EMPTY])
-    retriever = StaticRetriever([corpus_chunk("POL-NEG-003")])
+    retriever = BelowGateRetriever([corpus_chunk("POL-NEG-003")])
     async with agent_runtime(llm=llm, retriever=retriever) as runtime:
         result = await _ask(runtime, "¿Me pueden hacer una quita de intereses?")
     assert "[POL-NEG-003]" not in result.text
@@ -117,3 +129,115 @@ async def test_regeneration_without_budget_falls_back_to_the_extract() -> None:
         result = await _ask(runtime, "¿puedo pagar con tarjeta?")
     assert result.text.endswith("[PAY-MET-001]") and "99" not in result.text
     assert {"type": "regeneration_skipped_budget"} in runtime.recorder.events
+
+
+async def test_a_faithful_answer_may_use_the_words_of_its_section_heading() -> None:
+    # "pagar" is only in FAQ-010's heading ("¿Puede pagar un familiar por mí?").
+    sentence = "Sí, se puede pagar por transferencia o cupón."
+    reply = GroundedReply.model_validate(
+        {
+            "text": sentence,
+            "claims": [
+                {
+                    "sentence": sentence,
+                    "section_id": "FAQ-010",
+                    "quote": "Sí, por transferencia o cupón.",
+                }
+            ],
+        }
+    )
+    llm = ScriptedLLM([reply])
+    retriever = BelowGateRetriever([corpus_chunk("FAQ-010")])
+    async with agent_runtime(llm=llm, retriever=retriever) as runtime:
+        result = await _ask(runtime, "¿puede pagar un familiar por mí?")
+    assert result.text == f"{sentence} [FAQ-010]"
+
+
+async def test_restated_claims_are_dropped_from_the_answer() -> None:
+    first = "Sí, desde el 10 % del saldo total."
+    restated = "Un pago parcial a cuenta se acepta desde el 10 % del saldo total."
+    other = (
+        "El pago parcial no suspende la gestión de cobranza, no otorga quita y no reemplaza un "
+        "acuerdo."
+    )
+    reply = GroundedReply.model_validate(
+        {
+            "text": "",
+            "claims": [
+                {"sentence": first, "section_id": "FAQ-001", "quote": first},
+                {"sentence": restated, "section_id": "POL-NEG-006", "quote": restated},
+                {"sentence": other, "section_id": "POL-NEG-006", "quote": other},
+            ],
+        }
+    )
+    llm = ScriptedLLM([reply])
+    retriever = StaticRetriever([corpus_chunk("FAQ-001"), corpus_chunk("POL-NEG-006")])
+    async with agent_runtime(llm=llm, retriever=retriever) as runtime:
+        result = await _ask(runtime, "¿Puedo pagar una parte de la deuda?")
+    assert result.text == f"{first} {other} [FAQ-001] [POL-NEG-006]"
+
+
+def _claims(*items: tuple[str, str, str]) -> GroundedReply:
+    return GroundedReply.model_validate(
+        {
+            "text": "",
+            "claims": [
+                {"sentence": sentence, "section_id": section, "quote": quote}
+                for sentence, section, quote in items
+            ],
+        }
+    )
+
+
+async def test_answer_keeps_the_answering_section_and_drops_unrelated_ones() -> None:
+    # Local chat: "¿Puedo cambiar la fecha de vencimiento de una cuota?" answered FAQ-003 plus the
+    # payment-method change (PAY-MET-005) and "…fuera de los límites de este documento…"
+    # (POL-NEG-009, a sentence about the policy document).
+    first = "El canal automático no cambia fechas."
+    second = (
+        "El pedido lo evalúa un operador y debe hacerse al menos 48 horas antes del vencimiento."
+    )
+    unrelated = (
+        "El medio de pago de un plan vigente se puede cambiar hasta 48 horas antes del próximo "
+        "vencimiento."
+    )
+    internal = "Cualquier condición fuera de los límites de este documento es una excepción."
+    reply = _claims(
+        (first, "FAQ-003", first),
+        (unrelated, "PAY-MET-005", unrelated),
+        (internal, "POL-NEG-009", "Cualquier condición fuera de los límites de este documento"),
+        (second, "FAQ-003", second),
+    )
+    retriever = StaticRetriever(
+        [corpus_chunk("FAQ-003"), corpus_chunk("PAY-MET-005"), corpus_chunk("POL-NEG-009")]
+    )
+    async with agent_runtime(llm=ScriptedLLM([reply]), retriever=retriever) as runtime:
+        result = await _ask(runtime, "¿Puedo cambiar la fecha de vencimiento de una cuota?")
+    assert result.text == f"{first} {second} [FAQ-003]"
+    assert {
+        "type": "claims_trimmed",
+        "received": 4,
+        "internal": 1,
+        "unrelated_section": 1,
+        "kept": 2,
+    } in runtime.recorder.events
+
+
+async def test_a_reply_with_only_internal_claims_is_an_abstention() -> None:
+    internal = "Cualquier condición fuera de los límites de este documento es una excepción."
+    reply = _claims(
+        (internal, "POL-NEG-009", "Cualquier condición fuera de los límites de este documento")
+    )
+    retriever = BelowGateRetriever([corpus_chunk("POL-NEG-009")])
+    async with agent_runtime(llm=ScriptedLLM([reply]), retriever=retriever) as runtime:
+        result = await _ask(runtime, "¿se puede pedir una excepción?")
+    assert "este documento" not in result.text
+    assert {"type": "policy_model_abstained"} in runtime.recorder.events
+
+
+async def test_extract_never_shows_sentences_about_the_agent_or_the_document() -> None:
+    retriever = StaticRetriever([corpus_chunk("POL-NEG-009")])
+    async with agent_runtime(retriever=retriever) as runtime:
+        result = await _ask(runtime, "¿se puede pedir una excepción?")
+    assert "este documento" not in result.text and "agente" not in result.text
+    assert "[POL-NEG-009]" not in result.text

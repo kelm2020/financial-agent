@@ -94,12 +94,16 @@ def split_sentences(text: str) -> list[str]:
 # Words a paraphrase may take from the question without stating anything about the policy.
 _ECHO_IGNORED = frozenset(
     {"puedo", "puede", "pueda", "tengo", "tiene", "hacer", "hacen", "cuand", "cuant", "donde",
-     "quier", "esta", "estan", "como", "para", "pero", "sobre", "desde", "hasta", "todo", "toda"}
+     "quier", "esta", "estan", "como", "para", "pero", "sobre", "desde", "hasta", "todo", "toda",
+     "hola", "buena", "graci"}
 )  # fmt: skip
 
 
-def _content_stems(text: str) -> set[str]:
+def content_stems(text: str) -> set[str]:
     return {word[:5] for word in re.findall(r"[a-z]{4,}", detection_skeleton(text))} - _ECHO_IGNORED
+
+
+_content_stems = content_stems
 
 
 def echoed_terms(sentence: str, question: str, source: str) -> set[str]:

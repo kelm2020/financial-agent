@@ -106,6 +106,11 @@ services:
       APP_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/collections
       MOCK_API_URL: http://mock:8001
+      # Taken from the host .env. Without them the agent starts with no model and no retriever,
+      # and every policy question is answered "No encontré esa información".
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_AGENT_MODEL: ${OPENAI_AGENT_MODEL:-gpt-5-nano}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
       MOCK_TOKEN_SECRET: ${MOCK_TOKEN_SECRET:-local-development-secret-change-me}
       SYSTEM_PROMPT_CANARY: ${SYSTEM_PROMPT_CANARY:-}
       LANGGRAPH_STRICT_MSGPACK: "true"
