@@ -20,6 +20,21 @@ from tests.agent_support import StaticRetriever, agent_runtime, corpus_chunk
         ("¿Qué pasa si no llego a pagar una cuota?", "consulta_general", "any"),
         ("ya pagué y me sigue apareciendo la deuda", "consulta_general", "any"),
         ("¿puedo pagar con transferencia y cuánto tarda?", "consulta_general", "any"),
+        # Answerability run 2026-09-14: these reached the balance, the options or a clarification.
+        ("¿aceptan que abone sólo un porcentaje del total?", "consulta_general", "any"),
+        ("si arranco un plan y después no llego a pagarlo, ¿qué pasa?", "consulta_general", "any"),
+        ("hice el pago ayer y todavía figura la deuda, ¿es normal?", "consulta_general", "any"),
+        ("¿me puedo arrepentir de un plan que ya acepté?", "consulta_general", "any"),
+        ("¿cómo es el procedimiento para objetar una deuda?", "consulta_general", "any"),
+        ("¿qué recargo tiene financiar la deuda?", "consulta_general", "any"),
+        ("¿cuántos días después de aceptar vence la primera cuota?", "consulta_general", "any"),
+        (
+            "¿qué hacen cuando un cliente cuenta que atraviesa una situación delicada?",
+            "consulta_general",
+            "any",
+        ),
+        ("¿cuánto de los intereses me pueden perdonar?", "consulta_general", "negociacion"),
+        ("perdón, ¿cuánto debo?", "consulta_deuda", "any"),
         # Their own routes are kept.
         ("¿Puedo pagar en 9 cuotas?", "negociacion", "any"),
         ("¿Me pueden hacer una quita de intereses?", "consulta_general", "negociacion"),
@@ -40,6 +55,7 @@ def test_policy_questions_and_payment_intent_routes(text: str, intent: str, topi
 def test_policy_question_helper_edges() -> None:
     assert asks_policy("¿puedo hacer un pago parcial?")
     assert not asks_policy("¿puedo pagar en cuotas?")
+    assert not asks_policy("¿puedo ver otra opción?")
     assert not asks_policy("¿puedo pagar en 3 cuotas?", installments=3)
 
 

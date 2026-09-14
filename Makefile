@@ -1,4 +1,4 @@
-.PHONY: setup up down migrate ingest mock run chat test test-rag embeddings-cache calibrate-rag eval-rag rerank-cache calibrate-rerank eval-rag-rerank eval-guardrails eval eval-heldout eval-blind eval-live eval-sim generate-blind-phrasings label-judge collect-judge-samples score-judge calibrate-judge coverage lint format check
+.PHONY: setup up down migrate ingest mock run chat test test-rag embeddings-cache calibrate-rag eval-rag rerank-cache calibrate-rerank eval-rag-rerank eval-answerability eval-guardrails eval eval-heldout eval-blind eval-live eval-sim generate-blind-phrasings label-judge collect-judge-samples score-judge calibrate-judge coverage lint format check
 
 setup:
 	uv sync
@@ -123,6 +123,10 @@ calibrate-rerank:
 eval-rag-rerank: ingest
 	uv run python -m scripts.evaluate_retrieval --split test --store memory --reranker
 	uv run python -m scripts.evaluate_retrieval --split test --store postgres --reranker
+
+# End-to-end answerability of policy questions (network: OpenAI model and embeddings, Cohere).
+eval-answerability:
+	uv run python -m scripts.evaluate_answerability
 
 # Coverage is only meaningful with the Postgres store exercised (needs `make up`).
 coverage:

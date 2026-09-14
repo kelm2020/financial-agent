@@ -408,14 +408,22 @@ async def _policy_plan(
 
     if context.retriever is None:
         return await no_evidence()
-    search = context.retriever.search_for_generation if high_risk else context.retriever.search
+    # With a model every policy answer is max-recall retrieval plus verified quotes: whether the
+    # material answers the question decides abstention, not a similarity score alone (F2 report).
+    # Without a model only the calibrated gate protects the verbatim extract.
+    generate = context.llm is not None
+    search = context.retriever.search_for_generation if generate else context.retriever.search
+    # The route's topic is a guess (often the model router's); as a filter it hid the section that
+    # answers ("¿en qué horario atienden?" routed to faq never saw ESC-004). Max recall searches
+    # every section; the topic still sets the risk.
+    topic = "any" if generate else route.topic
     context.recorder.record_tool(
-        "search_policies", query=state.get("last_user_text", ""), topic=route.topic
+        "search_policies", query=state.get("last_user_text", ""), topic=topic
     )
     try:
         result = await search(
             state.get("last_user_text", ""),
-            topic=route.topic,
+            topic=topic,
             effective_on=context.clock.now().date(),
         )
     except Exception:
@@ -423,6 +431,8 @@ async def _policy_plan(
         return await no_evidence()
     if result.status != "ok" or not result.hits:
         return await no_evidence()
+    # An unanswered question keeps the risk of its route: an unknown topic only offers a person.
+    abstain_risk = "high" if high_risk else "low"
     if route.topic == "any":
         # A policy question routed without a topic takes the risk of the section that answers it.
         high_risk = result.hits[0].chunk.topic in {"negociacion", "escalamiento"}
@@ -431,8 +441,12 @@ async def _policy_plan(
         "response_plan": ResponsePlan(
             kind="policy",
             template_id="policy_extract",
-            generation=("grounded_policy_reply" if high_risk and context.llm is not None else None),
+            generation="grounded_policy_reply" if generate else None,
             cited_section_ids=result.source_chunk_ids,
+            facts={
+                "extract_allowed": result.evidence_gate_passed,
+                "abstain_risk": abstain_risk,
+            },
             risk="high" if high_risk else "low",
             followup=followup,
         ),
@@ -1077,9 +1091,17 @@ def validate_candidate(
                 flags.append("uncited_claim")
                 break
 
-    if policy_content and plan.risk == "high" and grounding is not None:
+    # High-risk answers and every model-written answer must carry verified claims; a low-risk
+    # template or model-free extract is verbatim source text already.
+    if (
+        policy_content
+        and grounding is not None
+        and (plan.risk == "high" or plan.generation is not None)
+    ):
         sources = {hit.chunk.section_id: hit.chunk.content for hit in state.get("retrieved", [])}
-        flags.extend(verify_grounded_reply(grounding, sources))
+        flags.extend(
+            verify_grounded_reply(grounding, sources, question=state.get("last_user_text", ""))
+        )
     return tuple(dict.fromkeys(flags))
 
 
@@ -1091,7 +1113,8 @@ GROUNDED_INSTRUCTION = (
     "\nRespondé sólo con oraciones respaldadas. Cada claim lleva una oración completa para el "
     "cliente (sentence), el section_id de su fuente y una cita textual (quote) copiada tal cual "
     "del material, de al menos cuatro palabras. La respuesta visible se arma sólo con esas "
-    "oraciones: no agregues introducciones ni cierres."
+    "oraciones: no agregues introducciones ni cierres. Si el material no responde lo que "
+    "pregunta el cliente, devolvé text y claims vacíos en lugar de responder sobre otro tema."
 )
 
 
@@ -1175,8 +1198,9 @@ def _sentence_key(text: str) -> str:
 
 async def _materialize(
     plan: ResponsePlan, state: AgentState, runtime: Runtime[GraphContext]
-) -> tuple[str, list[GuardFlag]]:
-    """Return validated text. Every rejected candidate lives only in this function's frame."""
+) -> tuple[str, list[GuardFlag], str]:
+    """Return validated text, its flags and the template actually used. Every rejected candidate
+    lives only in this function's frame."""
     flags: list[GuardFlag] = []
     if plan.generation is not None and runtime.context.llm is not None:
         feedback: str | None = None
@@ -1184,10 +1208,20 @@ async def _materialize(
             try:
                 candidate = await _generate(plan, state, runtime, feedback)
             except TurnBudgetExceeded:
-                raise
+                if feedback is None:
+                    raise
+                # No budget left for the regeneration: the rejected draft falls back like any other
+                # failed generation instead of ending a policy question in a derivation.
+                runtime.context.recorder.record_event("regeneration_skipped_budget")
+                break
             except Exception:
                 runtime.context.recorder.record_event("response_model_unavailable")
                 break
+            if plan.kind == "policy" and not candidate.claims and not candidate.text.strip():
+                # The model returned nothing to back: the material does not answer the question.
+                # Any text, even without claims, is still validated (a leak must be flagged).
+                text, template = await _abstain(plan, state, runtime)
+                return text, flags, template
             rejected = validate_candidate(
                 candidate.text,
                 plan,
@@ -1197,7 +1231,7 @@ async def _materialize(
                 policy_content=plan.kind == "policy",
             )
             if not rejected:
-                return candidate.text, flags
+                return candidate.text, flags, plan.template_id or ""
             flags.extend(rejected)
             feedback = ",".join(rejected)
         else:
@@ -1205,6 +1239,10 @@ async def _materialize(
             # A failed model draft is not the end of the response path. The same plan always has
             # a deterministic template (and policy plans have a source-backed extract), so prefer
             # that auditable fallback before offering or performing a derivation.
+        if plan.template_id == "policy_extract" and not plan.facts.get("extract_allowed", True):
+            # Max-recall hits below the evidence gate are not a relevant extract: abstain.
+            text, template = await _abstain(plan, state, runtime)
+            return text, flags, template
 
     extract = policy_extract(plan, state) if plan.template_id == "policy_extract" else None
     template = (
@@ -1220,10 +1258,25 @@ async def _materialize(
         policy_content=extract is not None,
     )
     if not rejected:
-        return template, flags
+        return template, flags, plan.template_id or ""
     flags.extend(rejected)
     flags.append("output_validation_failed")
-    return await _second_failure(plan, state, runtime), flags
+    return await _second_failure(plan, state, runtime), flags, plan.template_id or ""
+
+
+async def _abstain(
+    plan: ResponsePlan, state: AgentState, runtime: Runtime[GraphContext]
+) -> tuple[str, str]:
+    """No verified answer for this question: say so. High-risk topics derive (§7.4 3.b)."""
+    runtime.context.recorder.record_event("policy_answer_abstained")
+    template = "no_evidence"
+    if plan.facts.get("abstain_risk") == "high":
+        derived = await _derive(
+            state, runtime, "fuera_de_politica", "Consulta de política sin respaldo verificable."
+        )
+        template = "no_evidence_high_risk" if derived else "human_unavailable"
+    text = _template_text(ResponsePlan(kind="policy", template_id=template), state)
+    return normalize_visible(text), template
 
 
 async def _second_failure(
@@ -1249,7 +1302,7 @@ async def render_and_validate(
         # Nodes needing the full answer never stream model text: a validated filler goes first.
         await stream.emit_filler(FILLER_TEXT, writer)
 
-    text, flags = await _materialize(plan, state, runtime)
+    text, flags, template_id = await _materialize(plan, state, runtime)
     if plan.followup == "confirmation" and plan.template_id != "confirmation_question":
         draft = state.get("pending_draft")
         if isinstance(draft, AgreementDraft):
@@ -1275,7 +1328,16 @@ async def render_and_validate(
             if shown and plan.template_id in _PROPOSAL_TEMPLATES
             else ""
         ),
-        "offered_next_step": _offered_next_step(plan, state) if shown else "",
+        "offered_next_step": (
+            _offered_next_step(
+                plan
+                if template_id == (plan.template_id or "")
+                else ResponsePlan(kind=plan.kind, template_id=template_id),
+                state,
+            )
+            if shown
+            else ""
+        ),
     }
 
 

@@ -1,0 +1,68 @@
+# ANSWERABILITY SPLIT — end-to-end policy answers through the real agent (router, max-recall
+# retrieval, reranker and grounded generation with verified quotes).
+# Written on 2026-09-14 from the section headings of kb/ only, before any run, and never tuned:
+# no prompt, threshold, routing rule or vocabulary may change while looking at its results.
+# Positives: one new phrasing per section; any listed section is a correct citation (FAQ entries
+# restate policy sections). Negatives: plausible questions the knowledge base does not answer.
+# Anti-contamination (same rule as evals/blind): a phrasing that motivated a change is promoted to
+# tests/test_policy_routing.py or tests/test_policy_answers.py and replaced here before measuring
+# again. Replaced on 2026-09-14 after the first run: Q-02, Q-07, Q-10, Q-17, Q-20, Q-21, Q-24,
+# Q-25, Q-28 (routing) and U-04, U-06 (answers restating the question).
+# Replaced after the second run: U-04 (an answer about a term its section never mentions).
+split: test
+effective_on: 2026-09-12
+customer_id: CUST-00125
+
+positive:
+  - {id: Q-01, expected_section_ids: [ESC-001], query: "¿en qué casos me pasan directamente con una persona?"}
+  - {id: Q-02, expected_section_ids: [ESC-002], query: "¿qué contemplan para clientes en una situación vulnerable?"}
+  - {id: Q-03, expected_section_ids: [ESC-003], query: "¿qué pasa si el sistema falla justo cuando confirmo un plan?"}
+  - {id: Q-04, expected_section_ids: [ESC-004], query: "¿en qué horario atienden los asesores?"}
+  - {id: Q-05, expected_section_ids: [ESC-005], query: "¿cuántas veces por día me pueden contactar para cobrarme?"}
+  - {id: Q-06, expected_section_ids: [ESC-006], query: "¿qué hacen con mis datos personales?"}
+  - {id: Q-07, expected_section_ids: [FAQ-001, POL-NEG-006], query: "¿se puede ir pagando de a poco sin firmar un acuerdo?"}
+  - {id: Q-08, expected_section_ids: [FAQ-002, PAY-MET-002], query: "¿cada cuánto se recalcula lo que debo?"}
+  - {id: Q-09, expected_section_ids: [FAQ-003], query: "¿me pueden correr el día de pago de una cuota?"}
+  - {id: Q-10, expected_section_ids: [FAQ-004, POL-NEG-008], query: "¿qué ocurre cuando alguien firma un plan y más adelante lo deja de pagar?"}
+  - {id: Q-11, expected_section_ids: [FAQ-005], query: "¿me pueden enviar por mail el detalle del acuerdo?"}
+  - {id: Q-12, expected_section_ids: [FAQ-006], query: "¿puedo tener más de un plan de pagos a la vez?"}
+  - {id: Q-13, expected_section_ids: [FAQ-007], query: "cuando termine de pagar, ¿me sacan del registro de deudores?"}
+  - {id: Q-14, expected_section_ids: [FAQ-008, PAY-MET-001], query: "¿sirve la financiación de mi tarjeta de crédito para pagar esto?"}
+  - {id: Q-15, expected_section_ids: [FAQ-009], query: "¿cómo compruebo que este chat es realmente oficial?"}
+  - {id: Q-16, expected_section_ids: [FAQ-010, POL-NEG-001], query: "¿mi hermano puede hacer el pago en mi nombre?"}
+  - {id: Q-17, expected_section_ids: [FAQ-011, PAY-MET-002], query: "transferí hace dos días y la cuenta sigue mostrando lo mismo, ¿por qué?"}
+  - {id: Q-18, expected_section_ids: [FAQ-012, POL-NEG-007], query: "¿por cuánto tiempo sigue vigente una propuesta que me dieron?"}
+  - {id: Q-19, expected_section_ids: [FAQ-013], query: "¿de dónde salen los intereses que me cobran?"}
+  - {id: Q-20, expected_section_ids: [FAQ-014], query: "¿un plan ya aceptado se puede dar de baja?"}
+  - {id: Q-21, expected_section_ids: [FAQ-015, ESC-001], query: "¿qué pasa si discrepo con el importe que me reclaman?"}
+  - {id: Q-22, expected_section_ids: [POL-NEG-001], query: "¿quiénes pueden pedir una refinanciación?"}
+  - {id: Q-23, expected_section_ids: [POL-NEG-002], query: "¿cómo clasifican a los clientes según los días de atraso?"}
+  - {id: Q-24, expected_section_ids: [POL-NEG-003], query: "¿de cuánto es la reducción de intereses según el atraso?"}
+  - {id: Q-25, expected_section_ids: [POL-NEG-004], query: "¿financiar tiene algún costo extra?"}
+  - {id: Q-26, expected_section_ids: [POL-NEG-005], query: "¿es obligatorio hacer un pago inicial para refinanciar?"}
+  - {id: Q-27, expected_section_ids: [POL-NEG-006, FAQ-001], query: "¿hay un monto mínimo para cada cuota?"}
+  - {id: Q-28, expected_section_ids: [POL-NEG-007, FAQ-012], query: "¿para cuándo se fija el primer pago de un plan nuevo?"}
+  - {id: Q-29, expected_section_ids: [POL-NEG-008, FAQ-004], query: "¿cuándo se da de baja un plan por falta de pago?"}
+  - {id: Q-30, expected_section_ids: [POL-NEG-009], query: "¿se puede pedir algo distinto a lo que ofrece el sistema?"}
+  - {id: Q-31, expected_section_ids: [PAY-MET-001], query: "¿con qué medios puedo abonar?"}
+  - {id: Q-32, expected_section_ids: [PAY-MET-002], query: "¿cuánto demora en impactar un pago con tarjeta?"}
+  - {id: Q-33, expected_section_ids: [PAY-MET-003, PAY-MET-001], query: "¿puedo pagar en efectivo en una sucursal?"}
+  - {id: Q-34, expected_section_ids: [PAY-MET-004], query: "¿dónde consigo el comprobante de lo que pagué?"}
+  - {id: Q-35, expected_section_ids: [PAY-MET-005], query: "¿puedo cambiar el medio de pago de mi plan?"}
+
+negative:
+  - {id: U-01, query: "¿cuál es el costo financiero total de un plan en doce cuotas?"}
+  - {id: U-02, query: "¿tienen sucursal en Rosario?"}
+  - {id: U-03, query: "¿puedo deducir estos pagos en mi declaración de impuestos?"}
+  - {id: U-04, query: "¿hay algún beneficio por pagar con billetera virtual?"}
+  - {id: U-05, query: "¿qué pasa con la deuda si el titular fallece?"}
+  - {id: U-06, query: "¿cuánto gana por mes un operador?"}
+  - {id: U-07, query: "¿me dan un beneficio si recomiendo a un amigo?"}
+  - {id: U-08, query: "¿la deuda prescribe después de cinco años?"}
+  - {id: U-09, query: "¿puedo transferir la deuda a otra entidad?"}
+  - {id: U-10, query: "¿tienen app para el celular?"}
+  - {id: U-11, query: "¿qué tasa de interés punitorio aplican por día?"}
+  - {id: U-12, query: "¿me reintegran lo que pagué de más hace dos años?"}
+  - {id: U-13, query: "¿ofrecen un seguro de desempleo para el plan?"}
+  - {id: U-14, query: "¿dónde queda la oficina central?"}
+  - {id: U-15, query: "¿los asesores trabajan desde Argentina?"}

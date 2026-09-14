@@ -11,7 +11,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from app.conversations.store import InMemoryConversationStore
 from app.graph.build import build_graph
-from app.graph.context import GraphContext
+from app.graph.context import GraphContext, Retriever
 from app.graph.persistence import checkpoint_serializer
 from app.graph.recorder import TurnRecorder
 from app.graph.service import ConversationAgentService
@@ -177,6 +177,7 @@ async def agent_session(
     llm: LLMClient | None = None,
     evidence: Sequence[str] = (),
     setup: SetupSpec | None = None,
+    retriever: Retriever | None = None,
 ) -> AsyncIterator[AgentSession]:
     resolved = setup or SetupSpec()
     await idempotency_store.reset()
@@ -199,7 +200,8 @@ async def agent_session(
         output_validator=OutputValidator(contact_allowlist=()),
         llm=llm,
         guard_classifier=llm,
-        retriever=EvidenceRetriever(evidence, resolved.now),
+        # Case evidence by default; the answerability eval passes the real hybrid retriever.
+        retriever=retriever if retriever is not None else EvidenceRetriever(evidence, resolved.now),
         # The production system prompt: the published fingerprint must match what actually ran.
         system_prompt=load_system_prompt(),
     )

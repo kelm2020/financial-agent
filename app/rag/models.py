@@ -74,6 +74,9 @@ class RetrievalResult(_StrictModel):
     on_no_evidence: NoEvidenceAction | None = None
     # Strongest dense similarity seen, kept for traces even when abstaining (no chunks leak).
     evidence_score: float | None = None
+    # Whether the calibrated evidence gate held. Max-recall results answer only through verified
+    # quotes; only a result above the gate may fall back to a verbatim extract.
+    evidence_gate_passed: bool = True
 
 
 class StoredChunk(_StrictModel):

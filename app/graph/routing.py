@@ -169,7 +169,7 @@ def asks_debt_composition(text: str) -> bool:
     normalized = detection_skeleton(text)
     # Interest of a plan (surcharge, rate, discount) is a policy question, not the balance.
     return bool(_INTEREST.search(normalized)) and not _has(
-        normalized, "quita", "cuota", "recargo", "tasa", "plan"
+        normalized, "quita", "cuota", "recargo", "tasa", "plan", "perdon", "rebaja"
     )
 
 
@@ -333,11 +333,15 @@ def proposal_reply(text: str) -> Literal["accept", "reject"] | None:
 # installments, the options or the balance keeps its own route.
 _POLICY_QUESTION = re.compile(
     r"^(?:(?:hola|buenas|buen dia|una consulta|consulta|disculpa)\s+)*(?:y\s+)?(?:"
-    r"puedo|podria|se puede|se podria|pueden|podrian|me pueden|me podrian|me hacen|es posible|"
-    r"hay forma de|como hago para|que pasa (?:si|con)|cuando se (?:actualiza|acredita|refleja)|"
-    r"hasta cuando|ya pague|si pago|tengo que|me mandan|me envian)\b"
+    r"puedo|me puedo|podria|se puede|se podria|pueden|podrian|me pueden|me podrian|me hacen|"
+    r"es posible|aceptan|hay forma de|como hago para|como es|que pasa (?:si|con)|que hacen|"
+    r"que recargo|cuantos dias|cuando se (?:actualiza|acredita|refleja)|hasta cuando|"
+    r"(?:ya )?(?:pague|hice el pago)|si (?:pago|arranco|firmo|tomo)|tengo que|"
+    r"me mandan|me envian)\b"
 )
-_NOT_A_POLICY_QUESTION = re.compile(r"\b(?:cuanto debo|saldo|opciones|alternativas|en cuotas)\b")
+_NOT_A_POLICY_QUESTION = re.compile(
+    r"\b(?:cuanto debo|saldo|opcion(?:es)?|alternativas?|en cuotas)\b"
+)
 _PAY_INTENT = re.compile(
     r"\b(?:quiero|queria|necesito|vengo a|voy a)\s+(?:pagar|abonar|saldar)\b"
     r"(?!\s+(?:el|mi|un|una)\s+(?:plan|acuerdo|cuota))"
@@ -403,11 +407,15 @@ def route_turn(text: str) -> RouteResult:
         return RouteResult(intent="negociacion", installments=installments)
     if asks_debt_composition(normalized):
         return RouteResult(intent="consulta_deuda", topic="faq")
-    # "interés" as a word: "me interesa" is an answer, not a question about interest.
-    if re.search(r"\binteres(?:es)?\b", normalized) or _has(
+    # "interés" as a word: "me interesa" is an answer, not a question about interest. "Perdonar"
+    # and "rebaja" name a quita and "adelanto" an anticipo (dev split vocabulary); "perdón" alone
+    # is an apology.
+    if re.search(r"\binteres(?:es)?\b|\bperdon(?:an|ar|en)\b", normalized) or _has(
         normalized,
         "quita",
+        "rebaja",
         "anticipo",
+        "adelanto",
         "requisitos para refinanciar",
         "politica de cuotas",
     ):

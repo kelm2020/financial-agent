@@ -91,11 +91,37 @@ def split_sentences(text: str) -> list[str]:
     return sentences
 
 
+# Words a paraphrase may take from the question without stating anything about the policy.
+_ECHO_IGNORED = frozenset(
+    {"puedo", "puede", "pueda", "tengo", "tiene", "hacer", "hacen", "cuand", "cuant", "donde",
+     "quier", "esta", "estan", "como", "para", "pero", "sobre", "desde", "hasta", "todo", "toda"}
+)  # fmt: skip
+
+
+def _content_stems(text: str) -> set[str]:
+    return {word[:5] for word in re.findall(r"[a-z]{4,}", detection_skeleton(text))} - _ECHO_IGNORED
+
+
+def echoed_terms(sentence: str, question: str, source: str) -> set[str]:
+    """Terms of an answer sentence taken from the question but absent from its cited section.
+
+    A real quote does not make a sentence true: "La comisión del asesor es del 10 % del saldo
+    total" cites "desde el 10 % del saldo total" and restates the question as if the policy said
+    it, and "Sí, hay descuentos por transferencia o cupón" answers a question about discounts with
+    a section that never mentions them. One such term is enough to reject the sentence: a lost
+    paraphrase only costs a regeneration or the verbatim extract.
+    """
+    return (_content_stems(sentence) & _content_stems(question)) - _content_stems(
+        plain_text(source)
+    )
+
+
 def verify_grounded_reply(
     reply: GroundedReply,
     sources: dict[str, str],
     *,
     min_quote_words: int | None = None,
+    question: str = "",
 ) -> tuple[GuardFlag, ...]:
     """Extractive grounding: every quote literally in its cited chunk, every sentence claimed.
 
@@ -128,6 +154,8 @@ def verify_grounded_reply(
         ):
             flags.append("quote_not_in_source")
             continue
+        if question and echoed_terms(claim.sentence, question, sources[claim.section_id]):
+            continue  # the sentence stays uncovered: unsupported_sentence
         covered.add(_canonical_sentence(claim.sentence))
         # A claim may group several sentences under one quote; each of them is covered.
         covered.update(_canonical_sentence(part) for part in split_sentences(claim.sentence))

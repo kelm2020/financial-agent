@@ -123,17 +123,8 @@ class PolicyRetriever:
                 reason="No hay documentos aplicables.",
                 on_no_evidence=no_evidence_action(topic, hits),
             )
-        # The evidence gate is chosen on the dev split: the reranker may order candidates while
-        # the dense similarity decides abstention. RRF is checked on the fused ranking.
-        if self._evidence_gate == "rerank":
-            evidence_score, threshold = hits[0].rerank_score, self._min_rerank_score
-        else:
-            evidence_score, threshold = retrieval.evidence, self._min_dense_score
-        if (
-            retrieval.best_rrf < self._min_rrf_score
-            or evidence_score is None
-            or evidence_score < threshold
-        ):
+        evidence_score, passed = self._evidence(retrieval)
+        if not passed:
             return RetrievalResult(
                 status="no_evidence",
                 reason="La evidencia recuperada no supera el umbral configurado.",
@@ -158,8 +149,9 @@ class PolicyRetriever:
         """Max-recall retrieval for grounded generation.
 
         Unlike :meth:`search`, this path does not turn a calibrated relevance score into an
-        abstention decision.  High-risk responses are instead accepted only when every emitted
-        sentence has an extractive citation verified by the output boundary.
+        abstention decision: a policy answer is accepted only when every emitted sentence has an
+        extractive citation verified by the output boundary. ``evidence_gate_passed`` still says
+        whether a verbatim extract of these hits would be relevant.
         """
         if not query.strip():
             return RetrievalResult(
@@ -174,14 +166,24 @@ class PolicyRetriever:
                 reason="No hay documentos aplicables.",
                 on_no_evidence=no_evidence_action(topic, []),
             )
-        evidence_score = (
-            retrieval.hits[0].rerank_score
-            if self._evidence_gate == "rerank"
-            else retrieval.evidence
-        )
+        evidence_score, passed = self._evidence(retrieval)
         return RetrievalResult(
             status="ok",
             hits=tuple(retrieval.hits),
             source_chunk_ids=tuple(dict.fromkeys(hit.chunk.section_id for hit in retrieval.hits)),
             evidence_score=evidence_score,
+            evidence_gate_passed=passed,
         )
+
+    def _evidence(self, retrieval: Retrieval) -> tuple[float | None, bool]:
+        """Evidence score of non-empty hits and whether it clears the gate chosen on the dev
+        split: the reranker may order candidates while the dense similarity decides abstention.
+        RRF is checked on the fused ranking."""
+        if self._evidence_gate == "rerank":
+            score, threshold = retrieval.hits[0].rerank_score, self._min_rerank_score
+        else:
+            score, threshold = retrieval.evidence, self._min_dense_score
+        passed = (
+            retrieval.best_rrf >= self._min_rrf_score and score is not None and score >= threshold
+        )
+        return score, passed
