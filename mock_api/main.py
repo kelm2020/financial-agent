@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+import os
+import re
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import uuid4
@@ -33,15 +35,50 @@ from mock_api.failure_injection import FailureInjection, failure_injection
 from mock_api.idempotency_store import idempotency_store
 
 FIXTURES = Path(__file__).parent / "fixtures"
-REFERENCE_TIME = datetime.fromisoformat("2026-09-11T14:03:00-03:00")
+FIXTURE_REFERENCE_TIME = datetime.fromisoformat("2026-09-11T14:03:00-03:00")
+# A date (also the date part of a timestamp) or a YYYY-MM billing period.
+_FIXTURE_DATE = re.compile(r"\b(20\d{2})-(0[1-9]|1[0-2])(?:-(\d{2}))?(?![\d-])")
+
+
+def fixture_shift_days(anchor: str, now: datetime) -> int:
+    """``fixed`` keeps the reference dates, which tests and evaluations assert against.
+    ``today`` (``make mock`` and Compose) moves every fixture date by whole days, so a local demo
+    keeps offers valid and due dates coherent whatever day it runs."""
+    if anchor == "fixed":
+        return 0
+    if anchor != "today":
+        raise ValueError("MOCK_FIXTURE_ANCHOR must be 'fixed' or 'today'")
+    reference = FIXTURE_REFERENCE_TIME
+    return (now.astimezone(reference.tzinfo).date() - reference.date()).days
+
+
+def shift_fixture_dates(raw: str, days: int) -> str:
+    def shift(match: re.Match[str]) -> str:
+        year, month, day = match.groups()
+        if day is None:
+            # A billing period (YYYY-MM) moves with its day-10 due date.
+            return f"{date(int(year), int(month), 10) + timedelta(days=days):%Y-%m}"
+        return (date(int(year), int(month), int(day)) + timedelta(days=days)).isoformat()
+
+    return _FIXTURE_DATE.sub(shift, raw) if days else raw
+
+
+FIXTURE_SHIFT_DAYS = fixture_shift_days(
+    os.environ.get("MOCK_FIXTURE_ANCHOR", "fixed"), datetime.now(UTC)
+)
+REFERENCE_TIME = FIXTURE_REFERENCE_TIME + timedelta(days=FIXTURE_SHIFT_DAYS)
+
+
+def _fixture_text(name: str) -> str:
+    return shift_fixture_dates((FIXTURES / name).read_text(encoding="utf-8"), FIXTURE_SHIFT_DAYS)
 
 
 def _load_json(name: str) -> Any:
-    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+    return json.loads(_fixture_text(name))
 
 
 def _load_customers() -> dict[str, Customer]:
-    raw = (FIXTURES / "customers.json").read_text(encoding="utf-8")
+    raw = _fixture_text("customers.json")
     customers = TypeAdapter(list[Customer]).validate_json(raw)
     return {customer.customer_id: customer for customer in customers}
 
