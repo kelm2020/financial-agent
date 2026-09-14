@@ -80,6 +80,9 @@ class IdempotencyStore:
         agreement = self._agreements.get((customer_id, debt_fingerprint))
         return dict(agreement) if agreement is not None else None
 
+    def active_agreement_count(self, customer_id: str) -> int:
+        return sum(1 for owner, _ in self._agreements if owner == customer_id)
+
     def save_agreement(self, agreement: dict[str, Any]) -> None:
         key = (str(agreement["customer_id"]), str(agreement["debt_fingerprint"]))
         self._agreements[key] = dict(agreement)

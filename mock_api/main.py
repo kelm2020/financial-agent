@@ -145,6 +145,12 @@ async def get_customer(
     customer = CUSTOMERS.get(customer_id)
     if customer is None:
         raise _not_found("el cliente")
+    registered = idempotency_store.active_agreement_count(customer_id)
+    if registered:
+        # An agreement registered here is active for the account, in this and later conversations.
+        customer = customer.model_copy(
+            update={"acuerdos_activos": customer.acuerdos_activos + registered}
+        )
     injected = _malformed_or_partial(injection, customer.model_dump(mode="json"))
     return injected or customer
 

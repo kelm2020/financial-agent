@@ -148,13 +148,20 @@ async def build_draft(state: AgentState, runtime: Runtime[GraphContext]) -> dict
             **offer.read.updates,
             "response_plan": ResponsePlan(kind="direct", template_id="zero_debt"),
         }
-    if (
+    customer = offer.read.customer
+    registered_here = (
         state.get("agreement_status") == "active"
         and state.get("agreement_fingerprint") == offer.read.fingerprint
-    ):
+    )
+    if registered_here or (customer is not None and customer.acuerdos_activos > 0):
+        # An agreement from an earlier conversation counts too: the policy allows one per debt.
         return {
             **offer.read.updates,
-            "response_plan": ResponsePlan(kind="result", template_id="agreement_exists"),
+            "response_plan": ResponsePlan(
+                kind="result",
+                template_id="agreement_exists",
+                facts={"agreement_id": state.get("agreement_id")},
+            ),
         }
     route = state.get("route_result")
     requested = _requested_option(state, offer.allowed)
@@ -279,6 +286,19 @@ async def execute_agreement(state: AgentState, runtime: Runtime[GraphContext]) -
             **offer.read.updates,
             "pending_draft": None,
             "response_plan": ResponsePlan(kind="error", template_id="draft_expired"),
+        }
+    if offer.read.customer.acuerdos_activos > 0:
+        # The account already has an active agreement (this or an earlier conversation): report
+        # it instead of "the data changed". The backend would refuse the write anyway.
+        context.recorder.record_event("agreement_already_exists", draft_id=draft.draft_id)
+        return {
+            **offer.read.updates,
+            "pending_draft": None,
+            "response_plan": ResponsePlan(
+                kind="result",
+                template_id="agreement_exists",
+                facts={"agreement_id": state.get("agreement_id")},
+            ),
         }
     allowed_now = opciones_permitidas(
         offer.read.customer,

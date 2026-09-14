@@ -342,6 +342,27 @@ async def test_active_agreement_conflict_returns_existing_business_outcome(
     assert "acuerdo activo" in conflict.message_for_model
 
 
+async def test_registered_agreement_is_active_for_the_customer(
+    gateway: CollectionsGateway, settings: Settings
+) -> None:
+    scope = scope_for("CUST-00125", settings)
+    before = await gateway.get_customer(scope)
+    created = await gateway.create_payment_agreement(
+        scope,
+        draft_id="draft-a",
+        idempotency_key=agreement_idempotency_key("CUST-00125", "draft-a"),
+        opcion_id="OPT-3C",
+        debt_fingerprint="d" * 64,
+        medio_pago="debito_automatico",
+    )
+    after = await gateway.get_customer(scope)
+    other = await gateway.get_customer(scope_for("CUST-00212", settings))
+    assert created.status == "ok"
+    assert before.data is not None and before.data.acuerdos_activos == 0
+    assert after.data is not None and after.data.acuerdos_activos == 1
+    assert other.data is not None and other.data.acuerdos_activos == 0
+
+
 async def test_transfer_contract_returns_a_typed_ticket(
     gateway: CollectionsGateway, settings: Settings
 ) -> None:

@@ -145,7 +145,8 @@ async def test_existing_agreement_and_backend_rejection() -> None:
         await _say(runtime, conversation, "Quiero la opción de 3 cuotas", "sí")
         (again,) = await _say(runtime, conversation, "Quiero la opción de 6 cuotas")
         assert "Ya tenés un acuerdo activo" in again.text
-        # A draft seeded behind the graph's back still cannot duplicate: the backend refuses.
+        # A draft seeded behind the graph's back still cannot duplicate: the fresh read reports the
+        # active agreement before any write.
         await runtime.seed(
             conversation, {"pending_draft": await fixture_draft(runtime, draft_id="second")}
         )
@@ -154,6 +155,29 @@ async def test_existing_agreement_and_backend_rejection() -> None:
         assert "AGR-" in rejected.text
         assert rejected.state["agreement_status"] == "active"
         assert len(runtime.recorder.agreement_writes) == 1
+
+
+async def test_backend_agreement_conflict_reports_the_existing_agreement() -> None:
+    # A concurrent conversation can register first: the backend refusal is the last defense.
+    from app.graph.nodes.agreement import _handle_agreement_result
+    from app.tools.schemas import AgreementResponse, ToolResult
+
+    async with agent_runtime() as runtime:
+        draft = await fixture_draft(runtime)
+        conflict: ToolResult[AgreementResponse] = ToolResult(
+            status="rejected_by_policy",
+            message_for_model="Ya existe un acuerdo activo para esta deuda",
+            correlation_id="corr-1",
+            error_code="AGREEMENT_EXISTS",
+            resource_id="AGR-CONCURRENT",
+        )
+        update = await _handle_agreement_result(
+            {"pending_draft": draft}, _runtime_for(runtime), draft, "key-1", conflict, {}
+        )
+    assert update["agreement_status"] == "active"
+    assert update["agreement_id"] == "AGR-CONCURRENT"
+    assert update["pending_draft"] is None
+    assert _template(update) == "agreement_exists"
 
 
 class _SequenceClock:

@@ -67,11 +67,27 @@ def _asks_about_registered_plan(text: str) -> bool:
     )
 
 
+def has_active_agreement(state: AgentState) -> bool:
+    """Registered in this conversation or reported by the backend for the account."""
+    customer = state.get("customer")
+    return state.get("agreement_status") == "active" or (
+        customer is not None and customer.acuerdos_activos > 0
+    )
+
+
 def _debt_next_step(state: AgentState) -> str:
-    """While a person owns the case the balance offers no plan (ESC-001), and an account the
-    policy already routes to an advisor is not offered alternatives it cannot get."""
+    """While a person owns the case the balance offers no plan (ESC-001), an account with an
+    active agreement is not offered another one (one per debt), and an account the policy
+    already routes to an advisor is not offered alternatives it cannot get."""
     if state.get("handoff_motivo"):
         return "Un asesor del equipo ya está revisando tu caso."
+    if has_active_agreement(state):
+        number = state.get("agreement_id")
+        reference = f" (compromiso N° {number})" if number else ""
+        return (
+            f"Ya tenés un acuerdo de pago activo{reference}, así que no hace falta armar otro "
+            "plan. Si necesitás modificarlo, te puedo derivar con un asesor."
+        )
     customer, debt = state.get("customer"), state.get("debt")
     if customer is not None and debt is not None and requiere_escalamiento(customer, debt):
         return (
@@ -232,6 +248,15 @@ async def plan_from_route(state: AgentState, runtime: Runtime[GraphContext]) -> 
     debt = state.get("debt")
     if negotiating and debt is not None and debt.saldo_total == 0:
         return {"response_plan": ResponsePlan(kind="direct", template_id="zero_debt")}
+    if negotiating and has_active_agreement(state):
+        # One active agreement per debt: report it instead of offering plans it cannot get.
+        return {
+            "response_plan": ResponsePlan(
+                kind="result",
+                template_id="agreement_exists",
+                facts={"agreement_id": state.get("agreement_id")},
+            )
+        }
 
     if route.intent == "negociacion":
         customer = state.get("customer")
@@ -1263,6 +1288,7 @@ _NEXT_STEP_OFFERS = {
     "debt_composition": "options",
     "clarify_amount": "amount",
     "amount_below_options": "human",
+    "agreement_exists": "human",
     # "Entendido. Si más adelante querés revisar alternativas…": a later "sí, quiero" still counts.
     "offer_declined": "options_later",
     "no_options": "human",
@@ -1278,4 +1304,7 @@ def _offered_next_step(plan: ResponsePlan, state: AgentState) -> str:
         # A numbered list invites "la 4"; an empty one says "Te puedo derivar".
         return "choose" if state.get("offered_options") else "human"
     offer = _NEXT_STEP_OFFERS.get(plan.template_id or "", "")
-    return "" if offer in {"options", "options_later"} and state.get("handoff_motivo") else offer
+    if offer in {"options", "options_later"} and state.get("handoff_motivo"):
+        return ""
+    # With an active agreement the balance offers an advisor to modify it, not alternatives.
+    return "human" if offer == "options" and has_active_agreement(state) else offer

@@ -115,3 +115,34 @@ cases:
         values:
           - {id: zzz, turn_text: {0: "Quiero la opción OPT-ZZZ"}}
           - {id: abc, turn_text: {0: "Elijo la opción OPT-ABC"}}
+
+  # Local chat regression: after registering a plan the balance still offered alternatives and the
+  # options were listed again. One active agreement per debt: it is reported, not offered again.
+  - id: A-07
+    title: Acuerdo activo informado en lugar de nuevas alternativas
+    category: accion
+    customer_id: CUST-00125
+    situation: Cliente con mora media registra un plan de 3 cuotas y después consulta saldo y opciones.
+    turns:
+      - user: "Quiero la opción de 3 cuotas"
+        expect_contains: ["¿Confirmás este acuerdo?"]
+      - user: "sí"
+        expect_contains: ["quedó registrado"]
+      - user: "¿cuánto debo?"
+        expect_contains: ["acuerdo de pago activo", "compromiso N° AGR-"]
+        expect_not_contains: ["alternativas"]
+      - user: "¿qué opciones tengo?"
+        expect_contains: ["Ya tenés un acuerdo activo"]
+        expect_not_contains: ["puedo ofrecerte"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options, create_payment_agreement]
+      forbidden_tools: [request_human]
+      must_escalate: false
+      must_create_agreement: true
+      agreement_option_id: OPT-3C
+      policy_case: true
+    variant_axes:
+      - name: fraseo
+        values:
+          - {id: cuanto_debo, turn_text: {2: "¿cuánto debo?"}}
+          - {id: saldo, turn_text: {2: "¿me decís mi saldo?"}}

@@ -33,6 +33,7 @@ from app.tools.client import CollectionsGateway
 from app.tools.schemas import AgreementDraft, MedioPago
 from config.settings import Settings
 from mock_api.auth import issue_token
+from mock_api.idempotency_store import idempotency_store
 from mock_api.main import app as mock_app
 
 # Inside the fixtures' offer window: options are valid until 2026-09-13T23:59-03:00 and the
@@ -253,6 +254,8 @@ async def agent_runtime(
     validator: OutputValidator | None = None,
     system_prompt: str = "",
 ) -> AsyncIterator[AgentRuntime]:
+    # The in-process mock keeps registered agreements, and they now make the account ineligible.
+    await idempotency_store.reset()
     settings = offline_settings()
     log: list[tuple[str, str]] = []
     transport = FaultInjectingTransport(faults)
