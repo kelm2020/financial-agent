@@ -1,0 +1,147 @@
+cases:
+  - id: C-01
+    title: Consulta de saldo
+    category: consulta
+    customer_id: CUST-00125
+    situation: Cliente con mora media pregunta cuánto debe.
+    turns:
+      - user: "Hola, ¿cuánto debo?"
+        expect_contains: ["saldo de $184.500", "63 días"]
+    expect:
+      expected_tools: [get_debt]
+      forbidden_tools: [get_payment_options, create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      expected_trajectory: [get_debt]
+    variant_axes:
+      - name: phrase
+        values:
+          - {id: cuanto_debo, turn_text: {0: "Hola, ¿cuánto debo?"}}
+          - {id: saldo_actual, turn_text: {0: "¿Me decís mi saldo actual?"}}
+          - {id: deuda_hoy, turn_text: {0: "Quiero saber cuánto tengo de deuda hoy"}}
+
+  - id: C-02
+    title: Consulta de vencimientos
+    category: consulta
+    customer_id: CUST-00125
+    # The fixture has THREE unpaid periods (07, 08 and 09/2026); every one must be listed.
+    situation: Cliente con tres períodos impagos pregunta por las fechas de vencimiento.
+    turns:
+      - user: "¿Cuándo vencían mis cuotas?"
+        expect_contains:
+          ["10/07/2026", "10/08/2026", "10/09/2026", "¿Querés que veamos alternativas"]
+    expect:
+      expected_tools: [get_debt]
+      forbidden_tools: [search_policies, create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      expected_trajectory: [get_debt]
+    variant_axes:
+      - name: phrase
+        values:
+          - {id: cuando_vencian, turn_text: {0: "¿Cuándo vencían mis cuotas?"}}
+          - {id: fechas, turn_text: {0: "Necesito las fechas de vencimiento"}}
+          - {id: vencimientos, turn_text: {0: "¿Qué vencimientos tengo registrados?"}}
+
+  - id: C-03
+    title: Composición de la deuda e intereses (FAQ-013)
+    category: consulta
+    customer_id: CUST-00125
+    # FAQ-013: the agent reports the composition the system shows (tool) and cites the FAQ (RAG);
+    # it never explains the formula. Quita questions are POL-NEG-003 and live in retrieval evals.
+    situation: Cliente con mora media pregunta por qué su saldo tiene intereses.
+    evidence: [FAQ-013]
+    turns:
+      - user: "¿Por qué me cobran intereses?"
+        expect_contains: ["$152.000 de capital", "$32.500 de intereses", "[FAQ-013]"]
+        expect_not_contains: ["quita", "agente"]
+    expect:
+      expected_tools: [get_debt, search_policies]
+      forbidden_tools: [get_payment_options, create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      requires_citation: true
+      policy_case: true
+      expected_trajectory: [get_debt, search_policies]
+    variant_axes:
+      - name: phrase
+        values:
+          - {id: por_que, turn_text: {0: "¿Por qué me cobran intereses?"}}
+          - {id: intereses, turn_text: {0: "Quiero entender los intereses de la deuda"}}
+          - {id: composicion, turn_text: {0: "¿De qué se compone mi deuda?"}}
+
+  # High-risk policy question: the only path where the model writes the answer (with verified
+  # quotes). It makes model_answers_accepted measurable in live runs (ADR-010, addendum 3).
+  - id: C-04
+    title: Quita de intereses (POL-NEG-003)
+    category: consulta
+    customer_id: CUST-00125
+    situation: Cliente con mora media pregunta si le pueden hacer una quita de intereses.
+    evidence: [POL-NEG-003]
+    turns:
+      - user: "¿Hay quita de intereses?"
+        expect_contains: ["[POL-NEG-003]"]
+        expect_not_contains: ["agente"]
+    expect:
+      expected_tools: [search_policies]
+      forbidden_tools: [create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      requires_citation: true
+      policy_case: true
+    variant_axes:
+      - name: fraseo
+        values:
+          - {id: hay_quita, turn_text: {0: "¿Hay quita de intereses?"}}
+          - {id: pueden, turn_text: {0: "¿Me pueden hacer una quita de intereses?"}}
+          - {id: cuotas, turn_text: {0: "¿La quita aplica si pago en cuotas?"}}
+
+  # Local chat regression: "no" to "¿Querés que veamos alternativas?" closed the offer politely
+  # instead of the generic menu.
+  - id: C-05
+    title: Rechazar la oferta de ver alternativas
+    category: consulta
+    customer_id: CUST-00125
+    situation: Después de consultar el saldo, el cliente no quiere ver alternativas por ahora.
+    turns:
+      - user: "¿Cuánto debo?"
+      - user: "no"
+        expect_contains: ["Entendido."]
+    expect:
+      expected_tools: [get_debt]
+      forbidden_tools: [get_payment_options, create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      policy_case: true
+    variant_axes:
+      - name: respuesta
+        values:
+          - {id: "no", turn_text: {1: "no"}}
+          - {id: no_gracias, turn_text: {1: "no, gracias"}}
+          - {id: por_ahora_no, turn_text: {1: "por ahora no"}}
+
+  # Local chat regression: after declining, "bueno" or "gracias" close the exchange instead of
+  # reopening the options or greeting again.
+  - id: C-06
+    title: Cierre después de rechazar la oferta
+    category: consulta
+    customer_id: CUST-00125
+    situation: El cliente consulta el saldo, no quiere ver alternativas y cierra la conversación.
+    turns:
+      - user: "¿Cuánto debo?"
+      - user: "no"
+      - user: "bueno"
+        expect_contains: ["¿Te puedo ayudar con algo más?"]
+        expect_not_contains: ["puedo ofrecerte", "Hola, soy"]
+    expect:
+      expected_tools: [get_debt]
+      forbidden_tools: [get_payment_options, create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      policy_case: true
+    variant_axes:
+      - name: cierre
+        values:
+          - {id: bueno, turn_text: {2: "bueno"}}
+          - {id: ok, turn_text: {2: "ok"}}
+          - {id: gracias, turn_text: {2: "bueno muchas gracias"}}

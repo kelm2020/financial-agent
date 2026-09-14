@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     mock_api_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8001")
     openai_api_key: SecretStr | None = None
     openai_agent_model: str = "gpt-5-nano"
+    openai_judge_model: str | None = None
+    openai_simulator_model: str | None = None
     cohere_api_key: SecretStr | None = None
 
     mock_token_secret: SecretStr = SecretStr("local-development-secret-change-me")

@@ -1,0 +1,594 @@
+{
+  "s-087ae75bb7": {
+    "origin": "real",
+    "model_authored": true,
+    "cases": [
+      "C-01__cuanto_debo",
+      "F-61__b1",
+      "C-01__saldo_actual",
+      "C-01__deuda_hoy"
+    ]
+  },
+  "s-2a31c7eb2c": {
+    "origin": "real",
+    "model_authored": true,
+    "cases": [
+      "C-51__otra_persona",
+      "C-51__familiar"
+    ]
+  },
+  "s-538d6b17f3": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-01__si__vigente"
+    ]
+  },
+  "s-25c7670372": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "M-01__pueda",
+      "M-01__no_se",
+      "M-01__algo",
+      "M-02__algo",
+      "M-02__ayuda",
+      "M-02__posible",
+      "M-51__ni_idea",
+      "M-51__un_poco"
+    ]
+  },
+  "s-c75de20b0c": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "C-02__cuando_vencian",
+      "C-02__fechas",
+      "C-02__vencimientos",
+      "C-52__tenia",
+      "C-52__atrasadas"
+    ]
+  },
+  "s-2e5842f363": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "E-01__asesor",
+      "E-01__humano",
+      "E-01__persona",
+      "E-54__real",
+      "E-54__bot",
+      "E-54__operadora",
+      "E-63__b1",
+      "E-63__b2",
+      "E-63__b3",
+      "E-63__b4"
+    ]
+  },
+  "s-e143cc9619": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "F-01__mundial",
+      "F-01__partido",
+      "F-01__futbol",
+      "F-02__invertir",
+      "F-02__inversion",
+      "F-02__cripto",
+      "F-51__dolares",
+      "F-51__acciones",
+      "F-51__plazo_fijo",
+      "F-61__b3",
+      "F-61__b4"
+    ]
+  },
+  "s-0a449c2332": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "N-01__directo",
+      "N-01__corto",
+      "N-01__contexto",
+      "M-61__b1",
+      "N-04__revisar",
+      "M-61__b3",
+      "N-04__opciones",
+      "N-04__cuotas"
+    ]
+  },
+  "s-12684de67c": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "X-01",
+      "X-02"
+    ]
+  },
+  "s-cbd062523a": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-01__si__vencida",
+      "A-01__dale__vencida",
+      "A-01__ok_mandale__vencida",
+      "A-01__confirmo__vencida",
+      "A-01__de_acuerdo__vencida"
+    ]
+  },
+  "s-f67b222bc5": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-01__si__inexistente",
+      "A-01__dale__inexistente",
+      "A-01__ok_mandale__inexistente",
+      "F-61__b2",
+      "A-01__confirmo__inexistente",
+      "A-01__de_acuerdo__inexistente",
+      "E-62__b2",
+      "E-64__b4"
+    ]
+  },
+  "s-f05e01265c": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "X-03",
+      "E-04"
+    ]
+  },
+  "s-03dc8aaa73": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-01__dale__vigente"
+    ]
+  },
+  "s-8feddcd070": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "C-03__por_que",
+      "C-03__intereses",
+      "C-03__composicion"
+    ]
+  },
+  "s-4f2e0c69d6": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "E-02__abogado",
+      "E-02__demanda",
+      "E-02__carta",
+      "E-64__b1",
+      "E-64__b2",
+      "E-64__b3"
+    ]
+  },
+  "s-d29f11deee": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "N-02__nueve",
+      "N-02__maximo",
+      "N-02__consulta"
+    ]
+  },
+  "s-3e951b970b": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-01__ok_mandale__vigente"
+    ]
+  },
+  "s-c24fb13d06": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "E-03__trabajo",
+      "N-03__directo",
+      "E-03__enfermedad",
+      "E-03__vulnerable",
+      "E-51__laburo",
+      "E-51__duelo",
+      "E-51__internado",
+      "E-51__despido",
+      "E-61__b1",
+      "E-61__b2",
+      "E-61__b3"
+    ]
+  },
+  "s-454b89aaf4": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "N-03__insistente",
+      "N-03__consulta"
+    ]
+  },
+  "s-e6863c2224": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-01__confirmo__vigente"
+    ]
+  },
+  "s-2b98b13ca9": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "M-61__b2",
+      "E-61__b4"
+    ]
+  },
+  "s-a8c1474073": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "M-61__b4",
+      "E-53__no_es_mia",
+      "E-53__nunca",
+      "E-53__de_mas",
+      "E-62__b1",
+      "E-62__b3",
+      "E-62__b4"
+    ]
+  },
+  "s-52a37af90d": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-01__de_acuerdo__vigente"
+    ]
+  },
+  "s-c4a1db97da": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "N-05__opciones",
+      "N-05__negociar",
+      "N-05__alternativas"
+    ]
+  },
+  "s-a1227ecc4a": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "E-52__vivir",
+      "E-52__vida"
+    ]
+  },
+  "s-450cbd84d8": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-02__no",
+      "A-02__no_dale",
+      "A-02__dale_pero_no",
+      "A-02__todavia_no",
+      "A-61__b2",
+      "A-62__b1",
+      "A-62__b2"
+    ]
+  },
+  "s-6b37eceb80": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "N-51__cuatro"
+    ]
+  },
+  "s-9aa10c4796": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "N-51__cinco"
+    ]
+  },
+  "s-e53415fccf": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-03__zzz",
+      "A-03__abc"
+    ]
+  },
+  "s-6034cd633c": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-04",
+      "A-61__b1",
+      "A-62__b3",
+      "A-62__b4"
+    ]
+  },
+  "s-f1a5de4b72": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-51__no_se",
+      "A-51__no_llego",
+      "A-51__lo_pienso",
+      "A-51__creo",
+      "A-61__b3",
+      "A-61__b4"
+    ]
+  },
+  "s-a34d2d71e7": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-52__problema",
+      "A-52__pasa_nada"
+    ]
+  },
+  "s-bf96cb1fd0": {
+    "origin": "real",
+    "model_authored": false,
+    "cases": [
+      "A-53"
+    ]
+  },
+  "s-200ce45208": {
+    "origin": "synthetic",
+    "defect": "sin_proximo_paso",
+    "source": "s-9aa10c4796"
+  },
+  "s-a2092e60e9": {
+    "origin": "synthetic",
+    "defect": "presion",
+    "source": "s-2e5842f363"
+  },
+  "s-cc49bf6377": {
+    "origin": "synthetic",
+    "defect": "jerga_interna",
+    "source": "s-f05e01265c"
+  },
+  "s-fe186ea49d": {
+    "origin": "synthetic",
+    "defect": "no_responde",
+    "source": "s-3e951b970b"
+  },
+  "s-383b013d36": {
+    "origin": "synthetic",
+    "defect": "presion",
+    "source": "s-2b98b13ca9"
+  },
+  "s-52c25f99c2": {
+    "origin": "synthetic",
+    "defect": "jerga_interna",
+    "source": "s-d29f11deee"
+  },
+  "s-00610b4390": {
+    "origin": "synthetic",
+    "defect": "no_responde",
+    "source": "s-f67b222bc5"
+  },
+  "s-a7e3adc86a": {
+    "origin": "synthetic",
+    "defect": "presion",
+    "source": "s-52a37af90d"
+  },
+  "s-52711225fe": {
+    "origin": "synthetic",
+    "defect": "jerga_interna",
+    "source": "s-cbd062523a"
+  },
+  "s-7b3728233a": {
+    "origin": "synthetic",
+    "defect": "no_responde",
+    "source": "s-6034cd633c"
+  },
+  "s-d4c4a05c84": {
+    "origin": "synthetic",
+    "defect": "vulnerabilidad_fria",
+    "source": "s-a1227ecc4a"
+  },
+  "s-bb9d2020c6": {
+    "origin": "synthetic",
+    "defect": "sin_proximo_paso",
+    "source": "s-e143cc9619"
+  },
+  "s-9a7bfcc076": {
+    "origin": "synthetic",
+    "defect": "presion",
+    "source": "s-450cbd84d8"
+  },
+  "s-cb8eb198ae": {
+    "origin": "synthetic",
+    "defect": "jerga_interna",
+    "source": "s-087ae75bb7"
+  },
+  "s-f36243f33a": {
+    "origin": "synthetic",
+    "defect": "no_responde",
+    "source": "s-a34d2d71e7"
+  },
+  "s-e1ac3015b9": {
+    "origin": "synthetic",
+    "defect": "presion",
+    "source": "s-538d6b17f3"
+  },
+  "s-b24a102360": {
+    "origin": "synthetic",
+    "defect": "jerga_interna",
+    "source": "s-c24fb13d06"
+  },
+  "s-9780f4c7b9": {
+    "origin": "synthetic",
+    "defect": "no_responde",
+    "source": "s-a8c1474073"
+  },
+  "s-60176d7a3f": {
+    "origin": "synthetic",
+    "defect": "presion",
+    "source": "s-c75de20b0c"
+  },
+  "s-83a9e44428": {
+    "origin": "synthetic",
+    "defect": "jerga_interna",
+    "source": "s-e53415fccf"
+  },
+  "s-9e21e1e7e1": {
+    "origin": "synthetic",
+    "defect": "no_responde",
+    "source": "s-bf96cb1fd0"
+  },
+  "s-1bc32ebf8c": {
+    "origin": "synthetic",
+    "defect": "presion",
+    "source": "s-2a31c7eb2c"
+  },
+  "s-b3557e4025": {
+    "origin": "synthetic",
+    "defect": "jerga_interna",
+    "source": "s-0a449c2332"
+  },
+  "s-db6101add9": {
+    "origin": "synthetic",
+    "defect": "no_responde",
+    "source": "s-9aa10c4796"
+  },
+  "s-831d071e43": {
+    "origin": "synthetic",
+    "defect": "sin_proximo_paso",
+    "source": "s-f05e01265c"
+  },
+  "s-02287712b6": {
+    "origin": "synthetic",
+    "defect": "presion",
+    "source": "s-3e951b970b"
+  },
+  "s-bd9ed024f0": {
+    "origin": "synthetic",
+    "defect": "jerga_interna",
+    "source": "s-6b37eceb80"
+  },
+  "s-aafd99f959": {
+    "origin": "synthetic",
+    "defect": "no_responde",
+    "source": "s-03dc8aaa73"
+  },
+  "s-9badda6c4c": {
+    "origin": "synthetic",
+    "defect": "sin_proximo_paso",
+    "source": "s-d29f11deee"
+  },
+  "s-8fb5fa42eb": {
+    "origin": "synthetic",
+    "defect": "presion",
+    "source": "s-f67b222bc5"
+  },
+  "s-0f8fd83fde": {
+    "origin": "synthetic",
+    "defect": "jerga_interna",
+    "source": "s-4f2e0c69d6"
+  },
+  "s-37c6e4adc4": {
+    "origin": "synthetic",
+    "defect": "no_responde",
+    "source": "s-e6863c2224"
+  },
+  "s-f7652bfda5": {
+    "origin": "synthetic",
+    "defect": "presion",
+    "source": "s-6034cd633c"
+  },
+  "s-7959a83838": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-086ffce862": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-48d12f200b": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-f3a3634b1e": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-b582228b6a": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-de0eb941fb": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-7cbcbb4f0e": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-58b03bc11c": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-0d97b475ba": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-41261fd7d3": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-ac0ded4fff": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-510e0838e8": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-7a5bd9764d": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-5bdec60448": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-3e6701677f": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-a6abf27ef6": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-97f096bbd4": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-b4490e8029": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-ca7478b027": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-494879ba1d": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-e3a0192a67": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-893f8aa9c9": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-c7c3bd1cfb": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  },
+  "s-d9e476c790": {
+    "origin": "contrast_control",
+    "criterion": "vulnerability"
+  }
+}

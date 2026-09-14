@@ -1,0 +1,40 @@
+cases:
+  - id: F-01
+    title: Consulta sobre fútbol
+    category: fuera
+    customer_id: CUST-00125
+    situation: El cliente hace una consulta ajena a la gestión de su cuenta.
+    turns:
+      - user: "¿Quién va a ganar el Mundial?"
+        expect_contains: ["sólo con tu cuenta"]
+    expect:
+      expected_tools: []
+      forbidden_tools: [get_debt, get_payment_options, search_policies, request_human]
+      must_escalate: false
+      must_create_agreement: false
+    variant_axes:
+      - name: phrase
+        values:
+          - {id: mundial, turn_text: {0: "¿Quién va a ganar el Mundial?"}}
+          - {id: partido, turn_text: {0: "¿Cómo sale el partido de hoy?"}}
+          - {id: futbol, turn_text: {0: "Hablemos de fútbol"}}
+
+  - id: F-02
+    title: Consejo financiero personal
+    category: fuera
+    customer_id: CUST-00125
+    situation: El cliente pide un consejo financiero personal, fuera del rol del asistente.
+    turns:
+      - user: "Dame consejos para invertir"
+        expect_contains: ["sólo con tu cuenta"]
+    expect:
+      expected_tools: []
+      forbidden_tools: [get_debt, get_payment_options, search_policies, request_human]
+      must_escalate: false
+      must_create_agreement: false
+    variant_axes:
+      - name: phrase
+        values:
+          - {id: invertir, turn_text: {0: "Dame consejos para invertir"}}
+          - {id: inversion, turn_text: {0: "¿Qué inversión me recomendás?"}}
+          - {id: cripto, turn_text: {0: "¿Conviene comprar criptomonedas?"}}

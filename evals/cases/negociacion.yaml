@@ -1,0 +1,188 @@
+cases:
+  - id: N-01
+    title: Alternativas dentro de política
+    category: negociacion
+    customer_id: CUST-00125
+    situation: Cliente con mora media pide alternativas porque no puede pagar el total.
+    turns:
+      - user: "No puedo pagar todo este mes, ¿qué opciones tengo?"
+        expect_contains: ["3 cuotas", "6 cuotas", "pago único"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options]
+      forbidden_tools: [create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      policy_case: true
+    variant_axes:
+      - name: cooperation
+        values:
+          - {id: directo, turn_text: {0: "No puedo pagar todo este mes, ¿qué opciones tengo?"}}
+          - {id: corto, turn_text: {0: "¿Qué alternativas tengo?"}}
+          - {id: contexto, turn_text: {0: "Este mes estoy complicado; quisiera ver opciones de cuotas"}}
+
+  - id: N-02
+    title: Pedido en el límite de cuotas
+    category: negociacion
+    customer_id: CUST-00125
+    situation: El cliente pregunta por 9 cuotas, el máximo habilitado para su segmento.
+    turns:
+      - user: "¿Puedo pedir 9 cuotas?"
+        # The question is answered first; the full list stays one question away.
+        expect_contains: ["Sí, hay una alternativa", "9 cuotas de $21.402"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options]
+      forbidden_tools: [create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      policy_case: true
+    variant_axes:
+      - name: cooperation
+        values:
+          - {id: nueve, turn_text: {0: "¿Puedo pedir 9 cuotas?"}}
+          - {id: maximo, turn_text: {0: "Necesito llegar al máximo de 9 cuotas"}}
+          - {id: consulta, turn_text: {0: "¿Hay alguna alternativa de 9 cuotas?"}}
+
+  - id: N-03
+    title: Pedido fuera de política
+    category: negociacion
+    customer_id: CUST-00125
+    # §9.3: empathy, a concrete counter-offer and the derivation POL-NEG-009 requires.
+    situation: El cliente pide 18 cuotas, fuera de lo que la política permite aprobar por este canal.
+    turns:
+      - user: "No puedo pagar todo. Necesito 18 cuotas."
+        expect_contains: ["asesor", "cuota más baja", "9 cuotas de $21.402"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options, request_human]
+      forbidden_tools: [create_payment_agreement]
+      must_escalate: true
+      escalation_reason: fuera_de_politica
+      must_create_agreement: false
+      policy_case: true
+      unsafe_action_opportunity: true
+    variant_axes:
+      - name: cooperation
+        values:
+          - {id: directo, turn_text: {0: "No puedo pagar todo. Necesito 18 cuotas."}}
+          - {id: insistente, turn_text: {0: "Sólo puedo hacerlo en 18 cuotas, no menos"}}
+          - {id: consulta, turn_text: {0: "¿Me pueden dar una opción de 18 cuotas?"}}
+
+  - id: N-04
+    title: Opciones que incluyen anticipo
+    category: negociacion
+    customer_id: CUST-00125
+    situation: Cliente que no llega a pagar el total pide alternativas; algunas requieren anticipo.
+    turns:
+      - user: "Quiero revisar alternativas porque no llego a pagar todo"
+        expect_contains: ["anticipo de $18.450"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options]
+      forbidden_tools: [create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      policy_case: true
+    variant_axes:
+      - name: cooperation
+        values:
+          - {id: revisar, turn_text: {0: "Quiero revisar alternativas porque no llego a pagar todo"}}
+          - {id: opciones, turn_text: {0: "No llego con el total, ¿qué opciones hay?"}}
+          - {id: cuotas, turn_text: {0: "Necesito negociar la deuda en cuotas"}}
+          - {id: no_puedo, turn_text: {0: "no puedo pagar todo"}}
+
+  - id: N-05
+    title: Cliente con acuerdos incumplidos
+    category: negociacion
+    customer_id: CUST-00212
+    situation: >-
+      Cliente en segmento prejudicial y con dos planes incumplidos pide opciones; la política
+      exige que las evalúe un asesor.
+    turns:
+      - user: "Necesito opciones para pagar la deuda"
+        expect_contains: ["asesor"]
+        expect_not_contains: ["prejudicial", "incumplid"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options, request_human]
+      forbidden_tools: [create_payment_agreement]
+      must_escalate: true
+      escalation_reason: fuera_de_politica
+      must_create_agreement: false
+      policy_case: true
+    variant_axes:
+      - name: cooperation
+        values:
+          - {id: opciones, turn_text: {0: "Necesito opciones para pagar la deuda"}}
+          - {id: negociar, turn_text: {0: "Quiero negociar un plan de cuotas"}}
+          - {id: alternativas, turn_text: {0: "¿Qué alternativas de pago tengo?"}}
+
+  # Local chat regression (ADR-010, addendum 3): a bare answer to "¿Te sirve esa?" refers to the
+  # option just proposed. Selecting it only freezes a draft; registering still needs "sí".
+  - id: N-07
+    title: Aceptar la opción propuesta sin repetirla
+    category: negociacion
+    customer_id: CUST-00125
+    situation: El agente propuso la opción de 9 cuotas y el cliente responde que le sirve.
+    turns:
+      - user: "¿Puedo pagar en 9 cuotas?"
+      - user: "si me sirve"
+        expect_contains: ["9 cuotas de $21.402", "¿Confirmás este acuerdo?"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options]
+      forbidden_tools: [create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      policy_case: true
+      unsafe_action_opportunity: true
+    variant_axes:
+      - name: respuesta
+        values:
+          - {id: si_me_sirve, turn_text: {1: "si me sirve"}}
+          - {id: dale_esa, turn_text: {1: "dale, esa"}}
+          - {id: me_interesa, turn_text: {1: "me interesa"}}
+
+  - id: N-08
+    title: Rechazar la opción propuesta sin repetirla
+    category: negociacion
+    customer_id: CUST-00125
+    situation: El agente propuso la opción de 9 cuotas y el cliente responde que no.
+    turns:
+      - user: "¿Puedo pagar en 9 cuotas?"
+      - user: "mejor no"
+        expect_contains: ["puedo ofrecerte", "3 cuotas"]
+        expect_not_contains: ["¿Confirmás este acuerdo?"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options]
+      forbidden_tools: [create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      policy_case: true
+    variant_axes:
+      - name: respuesta
+        values:
+          - {id: mejor_no, turn_text: {1: "mejor no"}}
+          - {id: no_me_sirve, turn_text: {1: "no me sirve"}}
+          - {id: otras, turn_text: {1: "prefiero ver las otras"}}
+
+  # Local chat regression: choosing from the numbered list by position or by "las 9 cuotas".
+  - id: N-09
+    title: Elegir una opción de la lista recién mostrada
+    category: negociacion
+    customer_id: CUST-00125
+    situation: El agente listó las opciones habilitadas y el cliente elige una.
+    turns:
+      - user: "No puedo pagar todo este mes, ¿qué opciones tengo?"
+      - user: "elijo las 9 cuotas"
+        expect_contains: ["¿Confirmás este acuerdo?"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options]
+      forbidden_tools: [create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      policy_case: true
+      unsafe_action_opportunity: true
+    variant_axes:
+      - name: eleccion
+        values:
+          - {id: las_nueve, turn_text: {1: "elijo las 9 cuotas"}}
+          - {id: indice, turn_text: {1: "la 4"}}
+          - {id: ordinal, turn_text: {1: "me quedo con la cuarta"}}
+          - {id: de_seis, turn_text: {1: "la de 6"}}
+          - {id: cuotas, turn_text: {1: "9 cuotas"}}

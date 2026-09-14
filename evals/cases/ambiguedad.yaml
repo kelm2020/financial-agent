@@ -1,0 +1,85 @@
+cases:
+  - id: M-01
+    title: Monto ambiguo
+    category: ambiguedad
+    customer_id: CUST-00125
+    situation: El cliente quiere pagar pero no dice cuánto puede.
+    turns:
+      - user: "Quiero pagar lo que pueda"
+        expect_contains: ["¿cuánto podrías pagar este mes?"]
+    expect:
+      expected_tools: []
+      forbidden_tools: [get_debt, get_payment_options, create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+    variant_axes:
+      - name: cooperation
+        values:
+          - {id: pueda, turn_text: {0: "Quiero pagar lo que pueda"}}
+          - {id: no_se, turn_text: {0: "No sé cuánto puedo pagar"}}
+          - {id: algo, turn_text: {0: "Algo puedo hacer pero no sé cuánto"}}
+
+  - id: M-02
+    title: Intención ambigua con voluntad de pago
+    category: ambiguedad
+    customer_id: CUST-00125
+    situation: El cliente muestra voluntad de pago sin un monto concreto y pide ayuda para empezar.
+    turns:
+      - user: "Algo puedo pagar, pero no sé cuánto"
+        expect_contains: ["¿cuánto podrías pagar este mes?"]
+    expect:
+      expected_tools: []
+      forbidden_tools: [get_debt, get_payment_options, create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+    variant_axes:
+      - name: cooperation
+        values:
+          - {id: algo, turn_text: {0: "Algo puedo pagar, pero no sé cuánto"}}
+          - {id: ayuda, turn_text: {0: "No sé cuánto, ¿me ayudás a empezar?"}}
+          - {id: posible, turn_text: {0: "Quiero hacer algo pero no sé cuánto puedo"}}
+
+  # Local chat regressions: the amount answered to "¿cuánto podrías pagar este mes?".
+  - id: M-03
+    title: Monto menor a la cuota más baja
+    category: ambiguedad
+    customer_id: CUST-00125
+    situation: El cliente quiere pagar lo que pueda y dice un monto menor que cualquier cuota.
+    turns:
+      - user: "Quiero pagar lo que pueda"
+      - user: "1000"
+        expect_contains: ["la cuota más baja", "asesor"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options]
+      forbidden_tools: [create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      policy_case: true
+    variant_axes:
+      - name: monto
+        values:
+          - {id: digitos, turn_text: {1: "1000"}}
+          - {id: palabras, turn_text: {1: "mil pesos"}}
+          - {id: formato, turn_text: {1: "$ 5.000"}}
+
+  - id: M-04
+    title: Monto que alcanza para una alternativa
+    category: ambiguedad
+    customer_id: CUST-00125
+    situation: El cliente quiere pagar lo que pueda y dice un monto que cubre la cuota de un plan.
+    turns:
+      - user: "Quiero pagar lo que pueda"
+      - user: "30000"
+        expect_contains: ["6 cuotas de $29.889", "¿Te sirve esa"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options]
+      forbidden_tools: [create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      policy_case: true
+    variant_axes:
+      - name: monto
+        values:
+          - {id: digitos, turn_text: {1: "30000"}}
+          - {id: mil, turn_text: {1: "unos 30 mil"}}
+          - {id: formato, turn_text: {1: "$ 30.000"}}

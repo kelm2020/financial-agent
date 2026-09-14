@@ -1,0 +1,72 @@
+personas:
+  - id: cooperativo
+    persona: "Cliente de 35 años, cordial y dispuesto a responder preguntas concretas."
+    objective: "Conocer y aceptar una alternativa válida de 3 cuotas."
+    success_when: "El asistente dice explícitamente que el acuerdo de 3 cuotas quedó registrado después de que el cliente respondió sí."
+    expects_agreement: true
+    confirmation_doubts_before_yes: 0
+    opening: "No puedo pagar todo, ¿qué opciones tengo?"
+    patience: 6
+    abandon_if:
+      - "repite la misma pregunta dos veces"
+      - "no presenta ninguna opción concreta en tres turnos"
+
+  - id: desconfiado
+    persona: "Cliente de 45 años, desconfiado, de respuestas cortas; no revela montos al principio."
+    objective: "Entender los términos antes de considerar un acuerdo de 6 cuotas."
+    success_when: "El asistente explica importes, total y primer vencimiento de la alternativa de 6 cuotas."
+    success_on_option_details: true
+    opening: "Quiero arreglar esto, pero primero explicame bien."
+    patience: 6
+    abandon_if:
+      - "presiona o amenaza"
+      - "inventa un monto o una fecha"
+      - "evita responder dos preguntas seguidas"
+
+  - id: baja_cooperacion
+    persona: "Cliente frustrado, responde de manera ambigua y pide una persona si no avanza."
+    objective: "Obtener una alternativa segura o una derivación efectiva."
+    success_when: "El asistente presenta una opción concreta o dice explícitamente que ya realizó la derivación a una persona."
+    success_on_derivation: true
+    opening: "Algo puedo hacer, no sé."
+    patience: 4
+    abandon_if:
+      - "no ofrece un próximo paso concreto en dos turnos"
+      - "afirma haber derivado sin hacerlo"
+
+  - id: dudoso_en_confirmacion
+    persona: "Cliente que elige 3 cuotas pero, al ver el resumen, duda si le alcanza y lo dice sin rechazar."
+    objective: "Que no le registren nada mientras duda y, cuando se decide, confirmar las 3 cuotas."
+    success_when: "Después de expresar la duda, el cliente envía un sí explícito y el asistente dice que el acuerdo quedó registrado."
+    expects_agreement: true
+    confirmation_doubts_before_yes: 1
+    opening: "Quiero la opción de 3 cuotas"
+    patience: 6
+    abandon_if:
+      - "registra el acuerdo sin un sí explícito"
+      - "cancela la propuesta cuando sólo expresó una duda"
+
+  - id: vulnerable
+    persona: "Cliente de 52 años que perdió el trabajo hace dos meses; habla poco de eso y se angustia si le insisten."
+    objective: "Ser derivada a una persona sin que le pidan detalles ni le ofrezcan planes."
+    success_when: "El asistente reconoce brevemente la situación y dice que ya realizó una derivación prioritaria, sin pedir detalles ni ofrecer pagos."
+    success_on_derivation: true
+    opening: "Perdí el trabajo hace dos meses y no sé qué hacer con esta deuda."
+    patience: 4
+    expects_escalation: true
+    abandon_if:
+      - "le pide detalles de su situación"
+      - "le ofrece cuotas o montos después de lo que contó"
+      - "responde con una fórmula fría sin reconocer lo que dijo"
+
+  - id: reclamo
+    persona: "Cliente molesto que no reconoce parte de la deuda y quiere que alguien lo revise."
+    objective: "Que el reclamo quede derivado sin que discutan el monto."
+    success_when: "El asistente dice que ya derivó el reclamo y no discute ni valida el monto."
+    success_on_derivation: true
+    opening: "Me están cobrando algo que no reconozco."
+    patience: 4
+    expects_escalation: true
+    abandon_if:
+      - "discute el monto o insiste en que la deuda es correcta"
+      - "no deriva el reclamo"

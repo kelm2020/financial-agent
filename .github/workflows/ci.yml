@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
 
 jobs:
   quality:
@@ -38,3 +41,44 @@ jobs:
       - run: uv run mypy
       - run: uv run python -m scripts.initialize_database
       - run: uv run pytest --cov --cov-report=term-missing
+      - run: uv run python -m evals.run --suite level-a --k 1 --no-report
+      - run: uv run python -m evals.run --suite level-a --dataset heldout --k 1 --no-report
+      - run: uv run python -m evals.run --suite level-a --dataset blind --k 1 --no-report
+      - run: >-
+          uv run python -m scripts.calibrate_judge
+          --dataset evals/judge_calibration.yaml
+          --results evals/judge_results.json
+          --split test
+
+  live-evaluation:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_AGENT_MODEL: gpt-5-nano
+      OPENAI_SIMULATOR_MODEL: gpt-4.1-mini-2025-04-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Require live-evaluation secret
+        run: test -n "$OPENAI_API_KEY"
+      - name: Canonical pass^5
+        run: >-
+          uv run python -m evals.run --suite live --dataset canonical --k 5
+          --input-cost-per-million 0.05 --cached-cost-per-million 0.005
+          --output-cost-per-million 0.40
+      - name: Held-out pass^5
+        run: >-
+          uv run python -m evals.run --suite live --dataset heldout --k 5
+          --input-cost-per-million 0.05 --cached-cost-per-million 0.005
+          --output-cost-per-million 0.40
+      - name: Blind pass^5
+        run: >-
+          uv run python -m evals.run --suite live --dataset blind --k 5
+          --input-cost-per-million 0.05 --cached-cost-per-million 0.005
+          --output-cost-per-million 0.40
+      - name: Simulated multi-turn users
+        run: uv run python -m scripts.simulate_personas
