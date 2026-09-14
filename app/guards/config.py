@@ -21,6 +21,7 @@ class GuardrailConfig(BaseModel):
     conversation_rate_window_seconds: float = Field(gt=0)
     repeated_deflect_close_after: int = Field(ge=1)
     confirmation_other_cancel_after: int = Field(ge=1)
+    confirmation_window_minutes: int = Field(ge=1, le=60)
     classifier_medium_confidence: float = Field(ge=0, le=1)
     classifier_high_confidence: float = Field(ge=0, le=1)
     classifier_solo_deflect_confidence: float = Field(ge=0, le=1)

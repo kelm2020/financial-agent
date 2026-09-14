@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from uuid import uuid4
 
 from langgraph.runtime import Runtime
@@ -88,7 +89,9 @@ async def _new_draft(
     assert offer.read.customer is not None and offer.read.debt is not None
     now = runtime.context.clock.now()
     method = _default_payment_method(option)
-    expires_at = vencimiento_oferta(option, now)
+    # §8.3: the confirmation window is short (minutes) and never outlives the offer (48 h).
+    window = timedelta(minutes=guardrail_config().confirmation_window_minutes)
+    expires_at = min(vencimiento_oferta(option, now), now + window)
     if method is None or expires_at <= now:
         return None
     decision = evaluar_propuesta(
@@ -109,7 +112,7 @@ async def _new_draft(
         fecha_primer_vencimiento=option.primer_vencimiento,
         medio_pago=method,
         debt_fingerprint=offer.read.fingerprint,
-        # min(valid_until, now + policy window): never extended beyond the backend validity.
+        # min(valid_until, offer window, confirmation window): never beyond backend validity.
         expires_at=expires_at,
         policy_refs=option.policy_refs,
     )
@@ -118,7 +121,7 @@ async def _new_draft(
 def _offer_again(
     offer: FreshOffer, *, template_id: str, extra: dict[str, object] | None = None
 ) -> dict[str, object]:
-    template = template_id if offer.allowed else "no_options"
+    template = "no_options" if template_id == "options" and not offer.allowed else template_id
     return {
         **offer.read.updates,
         **(extra or {}),
@@ -130,11 +133,19 @@ def _offer_again(
 
 
 async def build_draft(state: AgentState, runtime: Runtime[GraphContext]) -> dict[str, object]:
+    runtime.context.recorder.record_step("build_draft")
     if state.get("agreement_status") == "unknown":
         return {"response_plan": ResponsePlan(kind="error", template_id="write_unknown_pending")}
+    if state.get("handoff_motivo"):
+        return {"response_plan": ResponsePlan(kind="escalate", template_id="already_derived")}
     offer = await _fresh_offer(state, runtime)
     if offer is None:
         return {"response_plan": ResponsePlan(kind="error", template_id="data_unavailable")}
+    if offer.read.debt is not None and offer.read.debt.saldo_total == 0:
+        return {
+            **offer.read.updates,
+            "response_plan": ResponsePlan(kind="direct", template_id="zero_debt"),
+        }
     if (
         state.get("agreement_status") == "active"
         and state.get("agreement_fingerprint") == offer.read.fingerprint
@@ -168,6 +179,7 @@ async def build_draft(state: AgentState, runtime: Runtime[GraphContext]) -> dict
 
 
 async def confirm_gate(state: AgentState, runtime: Runtime[GraphContext]) -> dict[str, object]:
+    runtime.context.recorder.record_step("confirm_gate")
     draft = state.get("pending_draft")
     if not isinstance(draft, AgreementDraft):
         # Anything but a frozen, typed draft is invalid. It is discarded, never rebuilt (INV-4).
@@ -204,7 +216,13 @@ async def confirm_gate(state: AgentState, runtime: Runtime[GraphContext]) -> dic
 
     now = runtime.context.clock.now()
     if draft.expires_at > now:
-        return {"confirmation_other_count": 0}
+        event_id = str(uuid4())
+        runtime.context.recorder.record_event(
+            "agreement_confirmation_accepted",
+            draft_id=draft.draft_id,
+            confirmation_event_id=event_id,
+        )
+        return {"confirmation_other_count": 0, "confirmation_event_id": event_id}
 
     # yes + expired draft: discard it, re-read and offer again. Never "no", never executed.
     runtime.context.recorder.record_event("agreement_draft_expired", draft_id=draft.draft_id)
@@ -233,6 +251,7 @@ async def confirm_gate(state: AgentState, runtime: Runtime[GraphContext]) -> dic
 
 
 async def execute_agreement(state: AgentState, runtime: Runtime[GraphContext]) -> dict[str, object]:
+    runtime.context.recorder.record_step("execute_agreement")
     context = runtime.context
     draft = state.get("pending_draft")
     if not isinstance(draft, AgreementDraft):
@@ -289,7 +308,11 @@ async def execute_agreement(state: AgentState, runtime: Runtime[GraphContext]) -
 
     key = agreement_idempotency_key(context.scope.customer_id, draft.draft_id)
     context.recorder.record_tool(
-        "create_payment_agreement", draft_id=draft.draft_id, opcion_id=draft.opcion_id
+        "create_payment_agreement",
+        draft_id=draft.draft_id,
+        opcion_id=draft.opcion_id,
+        debt_fingerprint=draft.debt_fingerprint,
+        medio_pago=draft.medio_pago,
     )
     result = await context.gateway.create_payment_agreement(
         context.scope,
@@ -320,7 +343,11 @@ async def reconcile_agreement(
         "agreement_reconciliation_attempt", draft_id=draft.draft_id
     )
     runtime.context.recorder.record_tool(
-        "create_payment_agreement", draft_id=draft.draft_id, opcion_id=draft.opcion_id
+        "create_payment_agreement",
+        draft_id=draft.draft_id,
+        opcion_id=draft.opcion_id,
+        debt_fingerprint=draft.debt_fingerprint,
+        medio_pago=draft.medio_pago,
     )
     result = await runtime.context.gateway.create_payment_agreement(
         runtime.context.scope,
@@ -350,6 +377,7 @@ async def _handle_agreement_result(
                 "monto_total": str(draft.monto_total),
                 "agreement_id": result.data.agreement_id,
                 "replayed": result.data.replayed,
+                "confirmation_event_id": state.get("confirmation_event_id", ""),
             }
         )
         context.recorder.record_event(
@@ -361,6 +389,7 @@ async def _handle_agreement_result(
             "agreement_status": "active",
             "agreement_id": result.data.agreement_id,
             "agreement_fingerprint": draft.debt_fingerprint,
+            "active_agreement": draft,
             "unknown_write_key": "",
             "unknown_draft": None,
             "response_plan": ResponsePlan(

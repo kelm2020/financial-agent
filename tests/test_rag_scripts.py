@@ -136,9 +136,7 @@ async def test_build_cache_embeds_corpus_and_both_splits_and_prunes(
     await build_embedding_cache.run(offline_settings(openai_api_key=SecretStr("sk")))
     texts = build_embedding_cache.cache_texts()
     assert len(texts) == 35 + 42 + 9
-    assert (
-        f"Cached {len(texts)} embeddings with local-hashing-v1; pruned 1" in capsys.readouterr().out
-    )
+    assert f"Cached {len(texts)} embeddings with local-hashing; pruned 1" in capsys.readouterr().out
 
 
 async def test_ingest_script_uses_cache_first_embeddings_and_an_explicit_date(

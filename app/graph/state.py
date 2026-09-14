@@ -29,6 +29,8 @@ Intent = Literal[
     "fuera_de_dominio",
     "pedido_humano",
     "saludo_despedida",
+    # A short "no" to the next step the last reply offered ("¿Querés que veamos alternativas?").
+    "rechaza_oferta",
     "ambiguo",
 ]
 
@@ -41,6 +43,8 @@ class RouteResult(BaseModel):
     installments: int | None = None
     topic: Topic = "any"
     escalation_motivo: EscalationMotivo | None = None
+    # Monthly amount the customer said they can pay, in answer to "¿cuánto podrías pagar?".
+    monthly_amount: int | None = None
 
 
 class ConfirmationVerdict(BaseModel):
@@ -55,7 +59,9 @@ class GeneratedReply(BaseModel):
     text: str
 
 
-Generation = Literal["debt_reply", "policy_reply", "grounded_policy_reply"]
+# Debt figures and low-risk policy answers are deterministic (templates and verified extracts, D7);
+# the model only writes high-risk policy answers, and every sentence carries a verified quote.
+Generation = Literal["grounded_policy_reply"]
 
 
 class ResponsePlan(BaseModel):
@@ -111,6 +117,7 @@ class AgentState(TypedDict, total=False):
     offered_options: list[PaymentOption]
     pending_draft: AgreementDraft | None
     confirmation_other_count: int
+    confirmation_event_id: str
 
     guard_rule_result: GuardRuleResult | None
     guard_model_result: GuardModelResult | None
@@ -125,6 +132,17 @@ class AgentState(TypedDict, total=False):
     agreement_status: AgreementStatus
     agreement_id: str
     agreement_fingerprint: str
+    # Terms of the agreement registered in this conversation, to answer questions about the plan.
+    active_agreement: AgreementDraft | None
+    # Reason of the last successful transfer. While a person owns the case the agent keeps
+    # answering questions but no longer negotiates (ESC-001).
+    handoff_motivo: str
+    # The single option the last reply proposed ("¿Te sirve esa?"), so a bare "sí, me sirve" or
+    # "mejor no" on the next turn refers to it. Cleared on every other turn.
+    proposed_option_id: str
+    # The next step the last reply offered: "options" or "human". Written, like the proposal, only
+    # by render_and_validate and only when the customer actually saw that reply.
+    offered_next_step: str
     unknown_write_key: str
     unknown_draft: AgreementDraft | None
     http_status: int

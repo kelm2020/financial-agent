@@ -8,6 +8,7 @@ from langgraph.runtime import Runtime
 
 from app.graph.context import GraphContext
 from app.graph.state import AgentState, ResponsePlan
+from app.guards.injection import mentions_foreign_customer
 from app.policy.engine import opciones_permitidas
 from app.tools.schemas import Customer, Debt, OptionsSnapshot, PaymentOption
 
@@ -87,16 +88,21 @@ async def read_business_data(
 
 async def hydrate(state: AgentState, runtime: Runtime[GraphContext]) -> dict[str, object]:
     context = runtime.context
+    if state.get("guard_verdict") == "restrict" and mentions_foreign_customer(
+        state.get("detection_text", ""), context.scope.customer_id
+    ):
+        # A foreign identifier is answered without touching even the authenticated account.
+        # This makes the IDOR defense visible in the tool trajectory, not only in URL scoping.
+        return {}
     now = context.clock.now()
     route = state.get("route_result")
     intent = route.intent if route is not None else None
-    needs_debt = state.get("pending_draft") is not None or intent in {
+    needs_debt = intent in {
         "consulta_deuda",
         "negociacion",
-        "pedido_humano",
     }
     needs_options = intent == "negociacion"
-    needs_customer = needs_options or intent == "pedido_humano"
+    needs_customer = needs_options
 
     fetched_at = state.get("debt_fetched_at")
     debt_is_fresh = (

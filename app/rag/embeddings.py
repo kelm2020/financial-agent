@@ -30,7 +30,7 @@ class HashingEmbeddingClient:
 
     @property
     def model_name(self) -> str:
-        return "local-hashing-v1"
+        return "local-hashing"
 
     @property
     def dimensions(self) -> int:

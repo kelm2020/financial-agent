@@ -109,7 +109,7 @@ def test_post_audit_benign_messages_are_allowed(text: str) -> None:
 def test_post_audit_output_violations_never_escape(text: str) -> None:
     flags = validate_candidate(
         normalize_visible(text),
-        ResponsePlan(kind="direct", generation="debt_reply"),
+        ResponsePlan(kind="direct"),
         evaluation_state(),
         OutputValidator(contact_allowlist=()),
         claims=(),

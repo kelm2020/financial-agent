@@ -214,9 +214,7 @@ def output_flags(case: OutputCase) -> tuple[str, ...]:
     plan = ResponsePlan(
         kind=case.plan_kind,
         template_id=None,
-        generation="grounded_policy_reply"
-        if case.risk == "high"
-        else ("policy_reply" if case.plan_kind == "policy" else "debt_reply"),
+        generation="grounded_policy_reply" if case.risk == "high" else None,
         risk=case.risk,
     )
     claims: tuple[Any, ...] = (

@@ -305,7 +305,7 @@ async def test_ingest_records_verifiable_metadata(
     store, embeddings = hashing_index
     metadata = await assert_index_current(store, embeddings)
     assert (metadata.chunk_count, metadata.embedding_dimensions) == (35, 64)
-    assert metadata.embedding_model == "local-hashing-v1"
+    assert metadata.embedding_model == "local-hashing"
 
 
 async def test_index_current_detects_each_drift(
@@ -324,7 +324,7 @@ async def test_index_current_detects_each_drift(
     with pytest.raises(RuntimeError, match="modelo"):
         await assert_index_current(store, NamedHashingEmbeddingClient("otro-modelo", 64))
     with pytest.raises(RuntimeError, match="dimensión"):
-        await assert_index_current(store, NamedHashingEmbeddingClient("local-hashing-v1", 8))
+        await assert_index_current(store, NamedHashingEmbeddingClient("local-hashing", 8))
 
 
 # --------------------------------------------------------------------------- retriever
@@ -482,7 +482,7 @@ async def test_embedding_cache_persists_rounds_and_reuses_vectors(tmp_path: Path
     assert await cached.embed(["cuotas"]) == first[1:2]
     assert CountingEmbeddings.calls == 1
 
-    offline = CachedEmbeddingClient(None, path, model_name="local-hashing-v1", dimensions=8)
+    offline = CachedEmbeddingClient(None, path, model_name="local-hashing", dimensions=8)
     assert await offline.embed(["cuotas", "anticipo"]) == [first[1], first[0]]
     with pytest.raises(EmbeddingCacheError, match="Faltan 1 embeddings"):
         await offline.embed(["texto nuevo"])
@@ -493,7 +493,7 @@ async def test_embedding_cache_retain_prunes_unused_entries(tmp_path: Path) -> N
     cached = CachedEmbeddingClient(HashingEmbeddingClient(8), path)
     await cached.embed(["viejo", "vigente"])
     assert await cached.retain(["vigente"]) == 1
-    fresh = CachedEmbeddingClient(None, path, model_name="local-hashing-v1", dimensions=8)
+    fresh = CachedEmbeddingClient(None, path, model_name="local-hashing", dimensions=8)
     assert await fresh.retain(["vigente"]) == 0
     stored = json.loads(path.read_text(encoding="utf-8"))["entries"]
     assert list(stored) == [hashlib.sha256(b"vigente").hexdigest()]
@@ -509,10 +509,10 @@ def test_offline_cache_needs_model_and_dimensions(tmp_path: Path) -> None:
     [
         ("not-json", "JSON válido"),
         ("[]", "formato"),
-        ('{"model":"local-hashing-v1","dimensions":8,"entries":[]}', "formato"),
+        ('{"model":"local-hashing","dimensions":8,"entries":[]}', "formato"),
         ('{"model":"other","dimensions":8,"entries":{}}', "generado con other/8"),
-        ('{"model":"local-hashing-v1","dimensions":4,"entries":{}}', "generado con"),
-        ('{"model":"local-hashing-v1","dimensions":8,"entries":{"k":[0.1]}}', "otra dimensión"),
+        ('{"model":"local-hashing","dimensions":4,"entries":{}}', "generado con"),
+        ('{"model":"local-hashing","dimensions":8,"entries":{"k":[0.1]}}', "otra dimensión"),
     ],
 )
 async def test_embedding_cache_never_silently_discards_a_bad_file(

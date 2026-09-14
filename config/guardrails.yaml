@@ -9,6 +9,8 @@ conversation_rate_limit: 20
 conversation_rate_window_seconds: 60
 repeated_deflect_close_after: 3
 confirmation_other_cancel_after: 2
+# §8.3: a frozen draft expires at min(offer validity, now + this window).
+confirmation_window_minutes: 10
 classifier_medium_confidence: 0.50
 classifier_high_confidence: 0.90
 classifier_solo_deflect_confidence: 0.98

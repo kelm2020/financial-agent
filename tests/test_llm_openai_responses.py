@@ -24,19 +24,26 @@ async def test_openai_responses_adapter_requests_strict_schema_and_parses_output
         return httpx.Response(
             200,
             json={
+                "usage": {
+                    "input_tokens": 120,
+                    "output_tokens": 15,
+                    "input_tokens_details": {"cached_tokens": 80},
+                },
                 "output": [
                     {
                         "type": "message",
                         "content": [{"type": "output_text", "text": '{"text":"respuesta segura"}'}],
                     }
-                ]
+                ],
             },
         )
 
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(handler), base_url="https://api.openai.test/v1"
     )
-    adapter = OpenAIResponsesLLM(api_key="sk-test", model="model-test", client=client)
+    adapter = OpenAIResponsesLLM(
+        api_key="sk-test", model="model-test", reasoning_effort="low", client=client
+    )
     try:
         result = await adapter.complete(
             task="response",
@@ -51,7 +58,11 @@ async def test_openai_responses_adapter_requests_strict_schema_and_parses_output
         await client.aclose()
 
     assert result.text == "respuesta segura"
+    assert adapter.usage_records[0].input_tokens == 120
+    assert adapter.usage_records[0].output_tokens == 15
+    assert adapter.usage_records[0].cached_tokens == 80
     assert captured["instructions"] == "reglas"
+    assert captured["reasoning"] == {"effort": "low"}
     assert captured["store"] is False
     assert captured["text"]["format"]["type"] == "json_schema"  # type: ignore[index]
     assert captured["text"]["format"]["strict"] is True  # type: ignore[index]
@@ -78,6 +89,7 @@ async def test_openai_responses_adapter_requires_key_and_output_text() -> None:
             )
     finally:
         await client.aclose()
+    assert adapter.usage_records == ()
 
 
 async def test_openai_responses_adapter_closes_owned_client() -> None:

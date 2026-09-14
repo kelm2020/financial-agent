@@ -30,10 +30,18 @@ class GroundedReply(BaseModel):
 def plain_text(text: str) -> str:
     """Markdown-free view of a KB chunk, shared by extracts, quotes and their sources."""
     lines: list[str] = []
-    for line in text.splitlines():
+    previous_row = False
+    for line in _merge_wrapped_items(text.splitlines()):
         stripped = line.strip()
-        if not stripped or re.fullmatch(r"\|?\s*:?-{3,}.*", stripped):
+        if not stripped:
             continue
+        if re.fullmatch(r"\|?\s*:?-{3,}.*", stripped):
+            # The row above a separator is the table header: column labels, not a statement.
+            if previous_row:
+                lines.pop()
+            previous_row = False
+            continue
+        previous_row = stripped.startswith("|")
         # Bullets and table rows are standalone statements; wrapped paragraph lines are not.
         standalone = bool(re.match(r"^(?:[-*]\s+|\d+\.\s+|\|)", stripped))
         stripped = re.sub(r"^(?:[-*]\s+|\d+\.\s+)", "", stripped)
@@ -42,6 +50,23 @@ def plain_text(text: str) -> str:
             stripped = f"{stripped}."
         lines.append(stripped)
     return " ".join(lines)
+
+
+_ITEM = re.compile(r"^\s*(?:[-*]\s+|\d+\.\s+)")
+
+
+def _merge_wrapped_items(lines: list[str]) -> list[str]:
+    """A list item wrapped onto an indented line is still one statement."""
+    merged: list[str] = []
+    for line in lines:
+        wrapped = (
+            line[:1].isspace() and line.strip() and not re.match(r"^\s*(?:[-*]|\d+\.|\|)", line)
+        )
+        if wrapped and merged and _ITEM.match(merged[-1]):
+            merged[-1] = f"{merged[-1].rstrip()} {line.strip()}"
+        else:
+            merged.append(line)
+    return merged
 
 
 def _canonical_sentence(sentence: str) -> str:

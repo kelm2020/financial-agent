@@ -33,17 +33,19 @@ from app.graph.state import AgentState
 def _after_hydrate(state: AgentState) -> str:
     if state.get("agreement_status") == "unknown":
         return "reconcile"
+    route = state.get("route_result")
+    # ESC-001/002 and an explicit request for a person always outrank a pending draft. A customer
+    # can disclose vulnerability, raise a dispute or ask for help while reading the confirmation.
+    if route is not None and route.intent == "pedido_humano":
+        return "escalate"
     if state.get("pending_draft") is not None:
         return "confirm"
-    route = state.get("route_result")
     if (
         route is not None
         and route.intent == "aceptar_opcion"
         and state.get("guard_verdict") != "restrict"
     ):
         return "draft"
-    if route is not None and route.intent == "pedido_humano":
-        return "escalate"
     return "plan"
 
 

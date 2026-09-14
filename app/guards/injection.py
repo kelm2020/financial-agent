@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.guards.codes import GuardFlag
 from app.guards.config import GuardrailConfig, guardrail_config
@@ -23,11 +23,14 @@ INJECTION_PATTERNS = tuple(
         ),
         r"\b(?:modo|rol) (?:desarrollador|developer|dios|sin restricciones|jailbreak)\b",
         (
-            r"\b(?:revela|revelame|mostra|mostrame|imprime|imprimi|decime|pasame|copia) "
+            r"\b(?:revela|revelame|mostra|mostrame|imprime|imprimi|decime|pasame|copia|copiame|"
+            r"dame|entrega|entregame|mandame|comparti|compartime|escribime) "
             r"(?:el |tu |tus |las |los )?"
-            r"(?:system prompt|prompt|instrucciones internas|instrucciones del sistema"
+            r"(?:system prom(?:pt?)?|prompt|instrucciones internas|instrucciones del sistema"
             r"|reglas internas)"
         ),
+        # Asking for the system prompt by name, typos included ("system promp").
+        r"\bsystem prom(?:pt?)?\b",
         r"\b(?:usa|selecciona|consulta|cambia a) (?:la cuenta |el cliente )?cust-\d{5}\b",
         r"\bignore (?:all|your|the|any) (?:previous |prior )?(?:instructions|rules)\b",
         r"\b(?:you are now|act as) (?:an? )?(?:unrestricted|jailbroken|dan)\b",
@@ -70,6 +73,14 @@ class GuardModelResult(BaseModel):
 
     label: Literal["benign", "injection", "jailbreak", "exfiltracion"] = "benign"
     confidence: float = 0.0
+    # ESC-001/ESC-002 signal read by the same per-turn call. It can only ADD a derivation that the
+    # deterministic router missed; it never removes or changes one (same rule as INV-23).
+    escalation_signal: Literal[
+        "ninguna", "vulnerabilidad", "reclamo", "amenaza_legal", "pedido_explicito"
+    ] = "ninguna"
+    # Verbatim words of the customer that justify the signal. The upgrade is only trusted when the
+    # quote is in the message and, for vulnerability, names a cause beyond difficulty paying.
+    escalation_evidence: str = Field(default="", max_length=300)
 
     @field_validator("confidence")
     @classmethod

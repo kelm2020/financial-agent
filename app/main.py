@@ -5,7 +5,6 @@ import json
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
-from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import httpx
@@ -26,8 +25,10 @@ from app.guards.output import OutputValidator
 from app.guards.preflight import PreflightPolicy
 from app.llm.openai_responses import OpenAIResponsesLLM
 from app.llm.protocol import LLMClient
+from app.prompts import load_system_prompt
 from app.rag.factory import build_retriever, embedding_client, reranker_client
-from app.rag.store import PgVectorHybridStore
+from app.rag.ingest import ingest_corpus
+from app.rag.store import InMemoryHybridStore, PgVectorHybridStore
 from app.runtime.clock import Clock, SystemClock
 from app.runtime.conversation_coordinator import (
     ConversationBusyError,
@@ -40,8 +41,6 @@ from app.security.scope import CustomerScope, session_from_token_claims
 from app.tools.client import CollectionsGateway
 from config.settings import Settings, get_settings
 from mock_api.auth import TokenClaims, require_claims
-
-SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "system_v1.md"
 
 
 def _prompt_canary(settings: Settings) -> str:
@@ -83,8 +82,16 @@ def _bearer_token(authorization: str) -> str:
     return token
 
 
-def _load_system_prompt() -> str:
-    return SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+async def _local_retriever(stack: AsyncExitStack, settings: Settings, clock: Clock) -> Retriever:
+    """Local mode has no pgvector: the same hybrid retriever over an in-memory index of kb/, so a
+    developer chatting with ``make run`` gets policy answers instead of abstentions."""
+    embeddings = await stack.enter_async_context(embedding_client(settings, allow_network=True))
+    reranker = None
+    if settings.cohere_api_key is not None and settings.cohere_api_key.get_secret_value().strip():
+        reranker = await stack.enter_async_context(reranker_client(settings, allow_network=True))
+    store = InMemoryHybridStore()
+    await ingest_corpus(store, embeddings, effective_on=clock.now().date())
+    return build_retriever(store, embeddings, settings, reranker=reranker)
 
 
 def create_app(
@@ -104,7 +111,12 @@ def create_app(
     postgres_enabled = resolved.app_env == "production" if use_postgres is None else use_postgres
     api_key = resolved.openai_api_key.get_secret_value() if resolved.openai_api_key else ""
     owned_llm = (
-        OpenAIResponsesLLM(api_key=api_key, model=resolved.openai_agent_model)
+        OpenAIResponsesLLM(
+            api_key=api_key,
+            model=resolved.openai_agent_model,
+            max_output_tokens=2000,
+            reasoning_effort=("low" if resolved.openai_agent_model.startswith("gpt-5") else None),
+        )
         if llm is None and api_key.strip()
         else None
     )
@@ -113,7 +125,7 @@ def create_app(
     # Static per deployment (prompt caching, §12.5). Without explicit configuration each process
     # draws its own secret instead of using a value published in the repository.
     canary = _prompt_canary(resolved)
-    base_prompt = _load_system_prompt()
+    base_prompt = load_system_prompt()
     system_prompt = f"{base_prompt}\nReferencia interna de versión: {canary}"
     output_validator = OutputValidator(
         contact_allowlist=load_contact_allowlist(),
@@ -142,6 +154,8 @@ def create_app(
             if owned_llm is not None:
                 stack.push_async_callback(owned_llm.aclose)
             if not postgres_enabled:
+                if api_retriever is None and api_key.strip():
+                    api_retriever = await _local_retriever(stack, resolved, clock or SystemClock())
                 yield
                 return
             pool = AsyncConnectionPool(
@@ -241,7 +255,7 @@ def create_app(
                 scope=scope,
                 gateway=gateway,
                 clock=clock or SystemClock(),
-                recorder=TurnRecorder(),
+                recorder=TurnRecorder(max_tool_calls=4, max_llm_calls=3),
                 output_validator=output_validator,
                 llm=api_llm,
                 guard_classifier=api_llm,

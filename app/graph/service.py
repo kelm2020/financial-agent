@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.conversations.store import ConversationRecord
-from app.graph.context import GraphContext
-from app.graph.recorder import TurnRecorder
+from app.graph.context import GraphContext, RecordedLLM
+from app.graph.recorder import TurnBudgetExceeded, TurnRecorder
+from app.guards.output import ValidationContext
 from app.guards.preflight import PreflightPolicy, preflight_message
 from app.runtime.conversation_coordinator import ConversationRunCoordinator
 from app.runtime.rate_limit import SlidingWindowRateLimiter
@@ -82,6 +83,16 @@ class ConversationAgentService:
         *,
         context: GraphContext,
     ) -> TurnResult:
+        context.recorder.start_turn()
+        turn_context = replace(
+            context,
+            llm=(RecordedLLM(context.llm, context.recorder) if context.llm is not None else None),
+            guard_classifier=(
+                RecordedLLM(context.guard_classifier, context.recorder)
+                if context.guard_classifier is not None
+                else None
+            ),
+        )
         if context.scope.customer_id != customer_id:
             raise ConversationNotFoundError(conversation_id)
         record = await self._owned(conversation_id, customer_id, context.recorder)
@@ -127,16 +138,21 @@ class ConversationAgentService:
                 "retrieved": [],
                 "http_status": 200,
             }
-            async for mode, chunk in self._graph.astream(
-                graph_input,
-                {"configurable": {"thread_id": record.thread_id}},
-                context=context,
-                stream_mode=["custom", "values"],
-            ):
-                if mode == "values":
-                    result = chunk
-                elif _is_validated_event(chunk):
-                    events.append({"event": chunk["event"], "data": chunk["data"]})
+            try:
+                async for mode, chunk in self._graph.astream(
+                    graph_input,
+                    {"configurable": {"thread_id": record.thread_id}},
+                    context=turn_context,
+                    stream_mode=["custom", "values"],
+                ):
+                    if mode == "values":
+                        result = chunk
+                    elif _is_validated_event(chunk):
+                        events.append({"event": chunk["event"], "data": chunk["data"]})
+            except TurnBudgetExceeded as exc:
+                return await self._budget_exhausted(
+                    conversation_id, context, kind=exc.kind, limit=exc.limit
+                )
         response = next(
             (
                 str(message.content)
@@ -150,6 +166,38 @@ class ConversationAgentService:
             state=result,
             events=tuple(events),
             http_status=int(result.get("http_status", 200)),
+        )
+
+    @staticmethod
+    async def _budget_exhausted(
+        conversation_id: str,
+        context: GraphContext,
+        *,
+        kind: str,
+        limit: int,
+    ) -> TurnResult:
+        context.recorder.record_event("turn_budget_exhausted", kind=kind, limit=limit)
+        context.recorder.record_tool("request_human", motivo="loop_sin_avance")
+        transfer = await context.gateway.transfer_to_human(
+            context.scope,
+            conversation_id=conversation_id,
+            motivo="loop_sin_avance",
+            resumen=f"Se agotó el presupuesto seguro del turno ({kind}).",
+        )
+        text = "Alcancé el límite seguro de operaciones para este turno. " + (
+            "Te derivé con un asesor para continuar."
+            if transfer.status == "ok"
+            else "No pude completar la derivación; probá nuevamente en unos minutos."
+        )
+        validation = context.output_validator.validate(
+            text, ValidationContext(allowed_customer_id=context.scope.customer_id)
+        )
+        if not validation.valid:
+            text = "No pude continuar de forma segura. Te puedo derivar con un asesor."
+        return TurnResult(
+            text=text,
+            state={"http_status": 200},
+            events=({"event": "validated_clause", "data": text},),
         )
 
 
