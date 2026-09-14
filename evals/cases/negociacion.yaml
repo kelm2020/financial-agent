@@ -139,6 +139,7 @@ cases:
           - {id: si_me_sirve, turn_text: {1: "si me sirve"}}
           - {id: dale_esa, turn_text: {1: "dale, esa"}}
           - {id: me_interesa, turn_text: {1: "me interesa"}}
+          - {id: acepta_ofrecida, turn_text: {1: "Quiero aceptar la opción de pago que me ofreciste"}}
 
   - id: N-08
     title: Rechazar la opción propuesta sin repetirla

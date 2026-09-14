@@ -81,6 +81,15 @@ _POSITIVE_PHRASES = tuple(sorted((p for p in POSITIVE if " " in p), key=len, rev
 # débito?") it is a preposition, and treating it as "no" would cancel a draft on a question.
 _STANDALONE_NEGATIVE = frozenset({"para", "para ya", "frena"})
 _WEAK_NEGATIVE_MAX_WORDS = 4
+# Explicit acceptance of what the agent just offered, as the challenge phrases it ("Quiero aceptar
+# la opción de pago que me ofreciste"). The whole message must be the acceptance: "quiero aceptar
+# la opción pero con otra fecha" is not a yes. Checked only after every negative (INV-7).
+_EXPLICIT_ACCEPTANCE = re.compile(
+    r"^(?:si\s+)?(?:(?:quiero|voy a|vamos a)\s+)?"
+    r"(?:aceptar|acepto|tomar|tomo|confirmar|confirmo)\s+"
+    r"(?:la|esa|esta|el|ese|este)\s+(?:opcion|propuesta|alternativa|plan|acuerdo)(?:\s+de\s+pago)?"
+    r"(?:\s+que\s+(?:me\s+)?(?:ofreciste|propusiste|mostraste|diste|pasaste))?$"
+)
 
 type RecheckReason = Literal["doubt", "idiom"]
 
@@ -97,6 +106,10 @@ def _without(normalized: str, values: tuple[str, ...]) -> str:
     for value in values:
         normalized = re.sub(rf"\b{re.escape(value)}\b", " ", normalized)
     return " ".join(normalized.split())
+
+
+def accepts_offer(text: str) -> bool:
+    return bool(_EXPLICIT_ACCEPTANCE.match(normalize_confirmation(text)))
 
 
 def recheck_reason(text: str) -> RecheckReason | None:
@@ -137,6 +150,8 @@ def deterministic_confirmation(text: str) -> ConfirmationVerdict | None:
         return ConfirmationVerdict(verdict="other")
     if _weak_rejection(normalized):
         return ConfirmationVerdict(verdict="no")
+    if _EXPLICIT_ACCEPTANCE.match(normalized):
+        return ConfirmationVerdict(verdict="yes")
     remainder = f" {normalized} "
     phrases = 0
     for phrase in _POSITIVE_PHRASES:

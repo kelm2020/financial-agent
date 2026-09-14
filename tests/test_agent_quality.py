@@ -1086,3 +1086,65 @@ def test_short_whole_statements_and_grouped_claims_are_supported() -> None:
         }
     )
     assert "quote_not_in_source" in verify_grounded_reply(fragment, source)
+
+
+@pytest.mark.parametrize(
+    ("text", "verdict"),
+    [
+        ("Quiero aceptar la opción de pago que me ofreciste.", "yes"),
+        ("si Quiero aceptar la opción de pago que me ofreciste.", "yes"),
+        ("acepto la propuesta", "yes"),
+        ("no quiero aceptar la opción", "no"),
+        ("quiero aceptar la opción pero con otra fecha", None),
+    ],
+)
+def test_explicit_acceptance_of_the_offer_is_a_deterministic_yes(
+    text: str, verdict: str | None
+) -> None:
+    result = deterministic_confirmation(text)
+    assert (result.verdict if result is not None else None) == verdict
+
+
+async def test_challenge_acceptance_phrase_registers_the_pending_draft() -> None:
+    # Local chat regression: "Quiero aceptar la opción de pago que me ofreciste" (the challenge's
+    # "Acción" scenario) repeated the summary and, the second time, cancelled the proposal.
+    await idempotency_store.reset()
+    async with agent_runtime() as runtime:
+        conversation = await runtime.service.create_conversation("CUST-00125")
+
+        async def say(text: str) -> Any:
+            return await runtime.service.send_message(
+                conversation.conversation_id,
+                conversation.customer_id,
+                text,
+                context=runtime.context,
+            )
+
+        await say("¿Qué opciones tengo?")
+        relisted = await say("Quiero aceptar la opción de pago que me ofreciste")
+        assert "puedo ofrecerte" in relisted.text  # after a list it does not say which one
+        summary = await say("1")
+        assert "un pago único de $178.000" in summary.text
+        registered = await say("Quiero aceptar la opción de pago que me ofreciste.")
+        again = await say("Quiero aceptar la opción de pago que me ofreciste.")
+    assert "quedó registrado" in registered.text
+    assert again.text.startswith("Ya tenés un acuerdo activo")
+
+
+async def test_challenge_acceptance_phrase_selects_the_proposed_option() -> None:
+    await idempotency_store.reset()
+    async with agent_runtime() as runtime:
+        conversation = await runtime.service.create_conversation("CUST-00125")
+
+        async def say(text: str) -> Any:
+            return await runtime.service.send_message(
+                conversation.conversation_id,
+                conversation.customer_id,
+                text,
+                context=runtime.context,
+            )
+
+        await say("¿Puedo pagar en 9 cuotas?")
+        selected = await say("Quiero aceptar la opción de pago que me ofreciste")
+    assert "anticipo de $18.450 y 9 cuotas" in selected.text
+    assert "¿Confirmás este acuerdo?" in selected.text

@@ -5,7 +5,7 @@ from typing import Literal
 from langgraph.runtime import Runtime
 from pydantic import BaseModel, ConfigDict
 
-from app.graph.confirmation import deterministic_confirmation, parse_confirmation
+from app.graph.confirmation import accepts_offer, deterministic_confirmation, parse_confirmation
 from app.graph.context import GraphContext
 from app.graph.recorder import TurnBudgetExceeded
 from app.graph.routing import (
@@ -166,6 +166,10 @@ async def route_or_confirm(state: AgentState, runtime: Runtime[GraphContext]) ->
         return {"confirmation_candidate": candidate, "route_result": route_turn(text)}
     proposed = state.get("proposed_option_id", "")
     offered = state.get("offered_next_step", "")
+    if accepts_offer(text) and state.get("agreement_status") == "active":
+        # Accepting again after registering: build_draft answers with the active agreement.
+        runtime.context.recorder.record_step("propose_agreement")
+        return {"route_result": RouteResult(intent="aceptar_opcion")}
     deterministic = route_turn(text)
     if offered == "choose" and deterministic.intent == "negociacion":
         installments = bare_installments(text)
@@ -194,6 +198,12 @@ async def route_or_confirm(state: AgentState, runtime: Runtime[GraphContext]) ->
         amount = monthly_amount(text) if offered == "amount" else None
         if amount is not None:
             return {"route_result": RouteResult(intent="negociacion", monthly_amount=amount)}
+        if accepts_offer(text) and (proposed or offered == "choose"):
+            if not proposed:
+                # "La opción que me ofreciste" after a list does not say which one: show it again.
+                return {"route_result": RouteResult(intent="negociacion")}
+            runtime.context.recorder.record_step("propose_agreement")
+            return {"route_result": RouteResult(intent="aceptar_opcion", option_id=proposed)}
         chosen = _listed_option(state, text) if offered == "choose" else None
         if chosen is not None:
             runtime.context.recorder.record_step("propose_agreement")

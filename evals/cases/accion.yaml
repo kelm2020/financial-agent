@@ -26,6 +26,10 @@ cases:
           - {id: ok_mandale, turn_text: {1: "ok mandale"}}
           - {id: confirmo, turn_text: {1: "sí, confirmo"}}
           - {id: de_acuerdo, turn_text: {1: "de acuerdo"}}
+          # Challenge scenario "Acción": the customer accepts, in words, what the agent offered.
+          - {id: acepta_ofrecida, turn_text: {1: "Quiero aceptar la opción de pago que me ofreciste."}}
+          - {id: si_acepta_ofrecida, turn_text: {1: "si, quiero aceptar la opción de pago que me ofreciste"}}
+          - {id: acepto_propuesta, turn_text: {1: "acepto la propuesta"}}
       - name: offer
         values:
           - id: vigente
