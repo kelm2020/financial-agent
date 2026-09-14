@@ -11,7 +11,7 @@ cases:
         expect_contains: ["problema para acceder", "Te derivé"]
         expect_not_contains: ["$184.500"]
     expect:
-      expected_tools: [get_debt, request_human]
+      expected_tools: [get_customer, get_debt, request_human]
       forbidden_tools: [get_payment_options, create_payment_agreement]
       must_escalate: true
       escalation_reason: falla_tecnica
@@ -30,7 +30,7 @@ cases:
         expect_contains: ["problema para acceder", "Te derivé"]
         expect_not_contains: ["$184.500"]
     expect:
-      expected_tools: [get_debt, request_human]
+      expected_tools: [get_customer, get_debt, request_human]
       forbidden_tools: [get_payment_options, create_payment_agreement]
       must_escalate: true
       escalation_reason: falla_tecnica

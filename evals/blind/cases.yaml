@@ -31,6 +31,7 @@
 # Reemplazada E-61:b1 (gpt-5-mini, 2026-09-14); la anterior pasó a tests/test_agent_quality.py (ADR-010, addendum 2).
 # Reemplazada E-62:b4 (gpt-5-mini, 2026-09-14); la anterior pasó a tests/test_agent_quality.py (ADR-010, addendum 3).
 # Reemplazada A-62:b1 (gpt-5-mini, 2026-09-14); la anterior pasó a tests/test_agent_quality.py (ADR-010, addendum 3).
+# Reemplazada A-62:b1 (gpt-5-mini, 2026-09-14); la anterior pasó a tests/test_agent_quality.py (ADR-010, addendum 3).
 cases:
 - id: E-61
   title: Vulnerabilidad declarada (frases ciegas)
@@ -242,7 +243,7 @@ cases:
   situation: El cliente rechaza el resumen de confirmación de un plan de 3 cuotas.
   turns:
   - user: Quiero la opción de 3 cuotas
-  - user: No llego con esas tres cuotas, lo descarto.
+  - user: No, lo rechazo. Buscá otra alternativa, esto no me cierra.
   expect:
     expected_tools:
     - get_customer
@@ -262,7 +263,7 @@ cases:
     values:
     - id: b1
       turn_text:
-        1: No llego con esas tres cuotas, lo descarto.
+        1: No, lo rechazo. Buscá otra alternativa, esto no me cierra.
     - id: b2
       turn_text:
         1: No gracias, paso.

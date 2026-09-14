@@ -300,6 +300,17 @@ async def resolve_guard_node(
     # The signal comes from the same model that judged the text: it is only trusted on text
     # the guard allowed. Restricted or deflected turns keep their fixed paths.
     upgrade = _escalation_upgrade(state, model, runtime) if decision.verdict == "allow" else {}
+    route = state.get("route_result")
+    deterministic = route_turn(state.get("last_user_text", ""))
+    if (
+        decision.verdict == "restrict"
+        and "suspected_injection" in decision.flags
+        and route is not None
+        and route != deterministic
+    ):
+        # The model router read an injection attempt as a request (e.g. for a person): a
+        # restricted turn keeps only what the deterministic table decides.
+        upgrade = {"route_result": deterministic}
     return {
         **upgrade,
         "guard_verdict": decision.verdict,

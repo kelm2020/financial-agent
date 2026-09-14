@@ -60,6 +60,7 @@ def _same_terms(draft: AgreementDraft, option: PaymentOption) -> bool:
         and option.monto_total == draft.monto_total
         and option.cuotas == draft.cuotas
         and option.monto_cuota == draft.monto_cuota
+        and option.anticipo == draft.anticipo
         and option.primer_vencimiento == draft.fecha_primer_vencimiento
     )
 
@@ -109,6 +110,7 @@ async def _new_draft(
         monto_total=option.monto_total,
         cuotas=option.cuotas,
         monto_cuota=option.monto_cuota,
+        anticipo=option.anticipo,
         fecha_primer_vencimiento=option.primer_vencimiento,
         medio_pago=method,
         debt_fingerprint=offer.read.fingerprint,

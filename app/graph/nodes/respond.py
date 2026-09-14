@@ -68,10 +68,28 @@ def _asks_about_registered_plan(text: str) -> bool:
 
 
 def _debt_next_step(state: AgentState) -> str:
-    """While a person owns the case the balance offers no plan (ESC-001)."""
+    """While a person owns the case the balance offers no plan (ESC-001), and an account the
+    policy already routes to an advisor is not offered alternatives it cannot get."""
     if state.get("handoff_motivo"):
         return "Un asesor del equipo ya está revisando tu caso."
+    customer, debt = state.get("customer"), state.get("debt")
+    if customer is not None and debt is not None and requiere_escalamiento(customer, debt):
+        return (
+            "Para ver alternativas de pago, tu cuenta la tiene que revisar un asesor. "
+            "¿Querés que te derive?"
+        )
     return "¿Querés que veamos alternativas para regularizarlo?"
+
+
+def _zero_debt_text(state: AgentState) -> str:
+    debt = state.get("debt")
+    last = debt.ultimo_pago if debt is not None else None
+    if last is None:
+        return _STATIC_TEMPLATES["zero_debt"]
+    return (
+        f"No registrás deuda vigente: tu último pago, de ${_money(last.monto)}, quedó acreditado "
+        f"el {_date(last.fecha)}. ¿Puedo ayudarte con algo más?"
+    )
 
 
 def _amount_plan(state: AgentState, amount: int, followup: Followup) -> dict[str, object]:
@@ -300,6 +318,8 @@ async def plan_from_route(state: AgentState, runtime: Runtime[GraphContext]) -> 
 def _closing_template(state: AgentState) -> str:
     """ "Hola" opens; "gracias", "chau" or an ok after a declined offer close the exchange."""
     normalized = detection_skeleton(state.get("last_user_text", ""))
+    if re.match(r"^no\b", normalized) and re.search(r"\bgracias\b", normalized):
+        return "no_thanks"
     if re.search(r"\bgracias\b", normalized):
         return "thanks"
     if re.search(r"\b(?:chau|adios|hasta luego|nos vemos)\b", normalized):
@@ -477,11 +497,22 @@ def _option_text(option: PaymentOption) -> str:
     )
 
 
+def _terms_text(terms: AgreementDraft) -> str:
+    """Every figure the customer commits to: advance, installments and total."""
+    if terms.cuotas == 1:
+        return f"un pago único de ${_money(terms.monto_total)}"
+    advance = f"anticipo de ${_money(terms.anticipo)} y " if terms.anticipo else ""
+    return (
+        f"{advance}{terms.cuotas} cuotas de ${_money(terms.monto_cuota)}, "
+        f"total ${_money(terms.monto_total)}"
+    )
+
+
 def _confirmation_text(draft: AgreementDraft, *, refreshed: bool = False) -> str:
     prefix = "La propuesta anterior venció; estos son los términos vigentes. " if refreshed else ""
+    due = "con vencimiento el" if draft.cuotas == 1 else "primera el"
     return (
-        f"{prefix}Antes de registrarlo, confirmá: {draft.cuotas} cuotas de "
-        f"${_money(draft.monto_cuota)}, total ${_money(draft.monto_total)}, primera el "
+        f"{prefix}Antes de registrarlo, confirmá: {_terms_text(draft)}, {due} "
         f"{_date(draft.fecha_primer_vencimiento)}, por {_METHOD_LABELS[draft.medio_pago]}. "
         "¿Confirmás este acuerdo? (sí / no)"
     )
@@ -556,8 +587,8 @@ _ESCALATION_TEXTS: dict[str, str] = {
     "vulnerabilidad": (
         "Gracias por contármelo, y lamento que estés pasando por esto. No hace falta que me "
         "des más detalles: ya te derivé con prioridad a un asesor del equipo, que va a revisar "
-        "tu caso con cuidado. Sólo registré que necesitás atención prioritaria, no lo que me "
-        "contaste."
+        "tu caso con cuidado. Para cuidar tu privacidad, sólo dejé registrado que necesitás "
+        "atención prioritaria."
     ),
     "identidad_no_verificada": (
         "Para avanzar con un plan, un asesor tiene que validar tu identidad. Ya te derivé para "
@@ -689,6 +720,7 @@ _STATIC_TEMPLATES = {
     ),
     "off_topic": "Te puedo ayudar sólo con tu cuenta y las opciones de pago. ¿Seguimos con eso?",
     "greeting": "Hola, soy el asistente virtual de cobranzas. ¿En qué puedo ayudarte?",
+    "no_thanks": "De nada. Que tengas un buen día.",
     "thanks": "De nada. ¿Te puedo ayudar con algo más?",
     "ack": "Perfecto. ¿Te puedo ayudar con algo más?",
     "farewell": (
@@ -722,6 +754,8 @@ def _template_text(plan: ResponsePlan, state: AgentState) -> str:
         if isinstance(draft, AgreementDraft):
             return _confirmation_text(draft, refreshed=bool(plan.facts.get("refreshed")))
         return _STATIC_TEMPLATES["draft_invalid"]
+    if template == "zero_debt":
+        return _zero_debt_text(state)
     if template == "debt":
         debt = state.get("debt")
         if debt is None:
@@ -744,6 +778,11 @@ def _template_text(plan: ResponsePlan, state: AgentState) -> str:
             f"(total ${_money(agreement.monto_total)}) tiene la primera cuota el "
             f"{_date(agreement.fecha_primer_vencimiento)}, por {method}. Es el compromiso "
             f"N° {state.get('agreement_id', '')}."
+            + (
+                f" Incluye un anticipo de ${_money(agreement.anticipo)}."
+                if agreement.anticipo
+                else ""
+            )
         )
     if template == "debt_due_dates":
         debt = state.get("debt")
@@ -751,7 +790,7 @@ def _template_text(plan: ResponsePlan, state: AgentState) -> str:
             return _STATIC_TEMPLATES["debt_unavailable"]
         due = [item for item in debt.vencimientos if item.estado == "vencido"]
         if not due:
-            return _STATIC_TEMPLATES["zero_debt"]
+            return _zero_debt_text(state)
         listed = _joined([f"{_date(item.vencimiento)} (${_money(item.monto)})" for item in due])
         label = "vencimiento impago" if len(due) == 1 else "vencimientos impagos"
         return f"Según el sistema, tenés {len(due)} {label}: {listed}. {_debt_next_step(state)}"
@@ -928,7 +967,8 @@ def _allowed_facts(state: AgentState) -> tuple[tuple[str, ...], tuple[str, ...],
     for terms in (draft, state.get("active_agreement")):
         if isinstance(terms, AgreementDraft):
             numbers.extend(
-                str(value) for value in (terms.cuotas, terms.monto_cuota, terms.monto_total)
+                str(value)
+                for value in (terms.cuotas, terms.monto_cuota, terms.monto_total, terms.anticipo)
             )
             dates.extend((terms.fecha_primer_vencimiento, terms.expires_at.date()))
     return tuple(numbers), tuple(percentages), tuple(dates)

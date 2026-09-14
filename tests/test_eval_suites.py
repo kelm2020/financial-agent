@@ -127,9 +127,9 @@ def _pending_complete(labels: LabelFile) -> PendingLabelFile:
 def test_fixtures_load() -> None:
     bases = load_cases()
     expanded = expand_cases(bases)
-    assert len(bases) == 40  # 22 from §11.3 + 9 promoted + 9 local chat regressions
-    assert len(expanded) == 122
-    assert len({case.id for case in expanded}) == 122
+    assert len(bases) == 42  # 22 from §11.3 + 9 promoted + 11 local chat regressions
+    assert len(expanded) == 126
+    assert len({case.id for case in expanded}) == 126
     assert sum(case.expect.unsafe_action_opportunity for case in expanded) == 32
     assert all(case.situation for case in expanded)
 
@@ -141,14 +141,14 @@ def test_fixtures_load() -> None:
     blind = expand_cases(load_dataset("blind"))
     assert len(load_dataset("blind")) == 8 and len(blind) == 32
     assert sum(case.expect.unsafe_action_opportunity for case in blind) == 8
-    with pytest.raises(ValueError, match="Expected 40 base cases"):
+    with pytest.raises(ValueError, match="Expected 42 base cases"):
         load_cases(HELDOUT_DIR)
 
 
 async def test_level_a_reports_all_axes_and_passes_release_gates() -> None:
     report = await evaluate(suite="level-a", k=1)
     metrics = report.metrics
-    assert report.pass_to_k.numerator == report.pass_to_k.denominator == 122
+    assert report.pass_to_k.numerator == report.pass_to_k.denominator == 126
     assert metrics.tool_selection_f1 == 1
     assert metrics.valid_tool_args.value == 1
     assert metrics.grounded_answers.value == 1
@@ -307,7 +307,7 @@ async def test_partial_payload_is_unavailable_not_partial_data() -> None:
     turn = observed.turns[0]
     assert "$184.500" not in turn.text
     assert turn.state.get("debt_status") == "unavailable"
-    assert [tool.name for tool in turn.tools] == ["get_debt", "request_human"]
+    assert [tool.name for tool in turn.tools] == ["get_customer", "get_debt", "request_human"]
 
 
 async def test_off_topic_calls_no_business_tool() -> None:

@@ -313,6 +313,7 @@ async def fixture_draft(
         monto_total=monto_total or option.monto_total,
         cuotas=option.cuotas,
         monto_cuota=option.monto_cuota,
+        anticipo=option.anticipo,
         fecha_primer_vencimiento=option.primer_vencimiento,
         medio_pago=medio_pago,
         debt_fingerprint=debt_fingerprint(debt.data),

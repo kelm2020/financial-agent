@@ -100,6 +100,16 @@ _AUTOMATED_CHANNEL = re.compile(
     r"\b(?:bot|robot|maquina|grabacion(?:es)?|grabad[oa]s?|pregrabad[oa]s?|contestador|"
     r"automatic[oa]s?|asistente virtual|menu(?:es|s)?)\b"
 )
+# A vulnerability quote must name a grave cause (income, health, loss, violence, basic needs):
+# "no llego con esas tres cuotas, lo descarto" rejects a plan, it does not explain a hardship.
+_VULNERABILITY_CAUSE = re.compile(
+    r"\b(?:trabaj|labur|emple|desemple|desocup|ingres|sueld|salari|changa|despid|echaron|"
+    r"suspend|licencia|de baja|horas?\b|rescind|jubil|pension|prestacion|local\b|negocio|"
+    r"quiebr|enferm|operac|operar|operaron|internad|hospital|tratamiento|medic|remedio|salud|"
+    r"cancer|tumor|quimio|dialisis|accident|fractur|lesion|secuela|discapac|depresi|angusti|"
+    r"ansiedad|desesper|no doy mas|psic|fallec|muri|muerte|duelo|luto|viud|violencia|golpe|"
+    r"maltrat|desaloj|calle\b|comer\b|comida|alquiler|hij[oa]s?\b|a cargo|embaraz|mango\b)"
+)
 # A dispute or legal quote must name the dispute or the legal action itself: rejecting a plan
 # ("lo rechazo", "no me sirve") is a negotiation answer, not a claim against the debt.
 _DISPUTE_EVIDENCE = re.compile(
@@ -220,7 +230,7 @@ def escalation_evidence_holds(text: str, evidence: str, signal: str) -> bool:
         return bool(_DISPUTE_EVIDENCE.search(quote))
     if signal == "amenaza_legal":
         return bool(_LEGAL_EVIDENCE.search(quote))
-    return any(len(word) > 2 and word not in _PAYMENT_TALK for word in quote.split())
+    return bool(_VULNERABILITY_CAUSE.search(quote))
 
 
 _PROPOSAL_REJECT = re.compile(
@@ -234,6 +244,10 @@ _PROPOSAL_ACCEPT = re.compile(
     r"porfa|joya|buenisimo|excelente)\b"
 )
 _PROPOSAL_REPLY_MAX_WORDS = 6
+_PLAN_REQUEST = re.compile(
+    r"\b(?:quiero|queria|necesito|busco|armar|armame|hacer|haceme|dame|ofreceme|tenes|tienen|hay|"
+    r"podemos|puedo tener|me (?:hacen|dan|ofrecen))\b(?:\s+\w+){0,3}\s+plan(?:es)?\b"
+)
 _CANNOT_PAY = re.compile(
     r"\bno (?:puedo|llego a|voy a poder|me alcanza para) pagar(?:lo)?\b|\bno me alcanza\b|"
     r"\bno llego (?:con|a cubrir)\b|\bno tengo (?:con que|para) pagar\b|"
@@ -380,6 +394,10 @@ def route_turn(text: str) -> RouteResult:
     # Strong investment/advice language wins over an incidental mention of "esta deuda".
     if _OFF_TOPIC.search(normalized):
         return RouteResult(intent="fuera_de_dominio")
+    if _PLAN_REQUEST.search(normalized):
+        # "quiero un plan" asks for alternatives; "plan de ahorro" was already off-topic above and
+        # "un cargo por un plan que nunca firmé" names a plan without asking for one.
+        return RouteResult(intent="negociacion", installments=installments)
     if _has(normalized, "cuanto debo", "saldo", "deuda"):
         return RouteResult(intent="consulta_deuda")
     if _has(

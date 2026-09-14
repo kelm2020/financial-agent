@@ -87,6 +87,7 @@ cases:
           - {id: opciones, turn_text: {0: "No llego con el total, ¿qué opciones hay?"}}
           - {id: cuotas, turn_text: {0: "Necesito negociar la deuda en cuotas"}}
           - {id: no_puedo, turn_text: {0: "no puedo pagar todo"}}
+          - {id: plan, turn_text: {0: "quiero un plan"}}
 
   - id: N-05
     title: Cliente con acuerdos incumplidos
@@ -112,6 +113,7 @@ cases:
           - {id: opciones, turn_text: {0: "Necesito opciones para pagar la deuda"}}
           - {id: negociar, turn_text: {0: "Quiero negociar un plan de cuotas"}}
           - {id: alternativas, turn_text: {0: "¿Qué alternativas de pago tengo?"}}
+          - {id: plan, turn_text: {0: "quiero un plan"}}
 
   # Local chat regression (ADR-010, addendum 3): a bare answer to "¿Te sirve esa?" refers to the
   # option just proposed. Selecting it only freezes a draft; registering still needs "sí".
@@ -123,7 +125,7 @@ cases:
     turns:
       - user: "¿Puedo pagar en 9 cuotas?"
       - user: "si me sirve"
-        expect_contains: ["9 cuotas de $21.402", "¿Confirmás este acuerdo?"]
+        expect_contains: ["anticipo de $18.450 y 9 cuotas de $21.402", "¿Confirmás este acuerdo?"]
     expect:
       expected_tools: [get_customer, get_debt, get_payment_options]
       forbidden_tools: [create_payment_agreement, request_human]

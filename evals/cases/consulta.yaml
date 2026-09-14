@@ -8,7 +8,7 @@ cases:
       - user: "Hola, ¿cuánto debo?"
         expect_contains: ["saldo de $184.500", "63 días"]
     expect:
-      expected_tools: [get_debt]
+      expected_tools: [get_customer, get_debt]
       forbidden_tools: [get_payment_options, create_payment_agreement, request_human]
       must_escalate: false
       must_create_agreement: false
@@ -31,7 +31,7 @@ cases:
         expect_contains:
           ["10/07/2026", "10/08/2026", "10/09/2026", "¿Querés que veamos alternativas"]
     expect:
-      expected_tools: [get_debt]
+      expected_tools: [get_customer, get_debt]
       forbidden_tools: [search_policies, create_payment_agreement, request_human]
       must_escalate: false
       must_create_agreement: false
@@ -56,7 +56,7 @@ cases:
         expect_contains: ["$152.000 de capital", "$32.500 de intereses", "[FAQ-013]"]
         expect_not_contains: ["quita", "agente"]
     expect:
-      expected_tools: [get_debt, search_policies]
+      expected_tools: [get_customer, get_debt, search_policies]
       forbidden_tools: [get_payment_options, create_payment_agreement, request_human]
       must_escalate: false
       must_create_agreement: false
@@ -108,7 +108,7 @@ cases:
       - user: "no"
         expect_contains: ["Entendido."]
     expect:
-      expected_tools: [get_debt]
+      expected_tools: [get_customer, get_debt]
       forbidden_tools: [get_payment_options, create_payment_agreement, request_human]
       must_escalate: false
       must_create_agreement: false
@@ -134,7 +134,7 @@ cases:
         expect_contains: ["¿Te puedo ayudar con algo más?"]
         expect_not_contains: ["puedo ofrecerte", "Hola, soy"]
     expect:
-      expected_tools: [get_debt]
+      expected_tools: [get_customer, get_debt]
       forbidden_tools: [get_payment_options, create_payment_agreement, request_human]
       must_escalate: false
       must_create_agreement: false
@@ -145,3 +145,39 @@ cases:
           - {id: bueno, turn_text: {2: "bueno"}}
           - {id: ok, turn_text: {2: "ok"}}
           - {id: gracias, turn_text: {2: "bueno muchas gracias"}}
+
+  # Local chat regressions: an account the policy routes to an advisor is not offered
+  # alternatives it cannot get, and a customer without debt hears about the last payment.
+  - id: C-07
+    title: Saldo de una cuenta que requiere asesor
+    category: consulta
+    customer_id: CUST-00377
+    situation: Cliente con identidad sin verificar consulta el saldo y acepta hablar con un asesor.
+    turns:
+      - user: "¿Cuánto debo?"
+        expect_contains: ["tiene que revisar un asesor"]
+        expect_not_contains: ["veamos alternativas"]
+      - user: "dale"
+        expect_contains: ["derivé"]
+    expect:
+      expected_tools: [get_customer, get_debt, get_payment_options, request_human]
+      forbidden_tools: [create_payment_agreement]
+      must_escalate: true
+      escalation_reason: identidad_no_verificada
+      must_create_agreement: false
+      policy_case: true
+
+  - id: C-08
+    title: Cliente sin deuda con último pago acreditado
+    category: consulta
+    customer_id: CUST-00450
+    situation: Cliente sin deuda vigente pregunta si debe algo.
+    turns:
+      - user: "¿Tengo deuda?"
+        expect_contains: ["No registrás deuda vigente", "último pago", "$74.200"]
+    expect:
+      expected_tools: [get_customer, get_debt]
+      forbidden_tools: [get_payment_options, create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      policy_case: true

@@ -102,7 +102,9 @@ async def hydrate(state: AgentState, runtime: Runtime[GraphContext]) -> dict[str
         "negociacion",
     }
     needs_options = intent == "negociacion"
-    needs_customer = needs_options
+    # The balance reply offers alternatives only when the policy would allow them (identity,
+    # segment, broken plans), which needs the customer as well.
+    needs_customer = needs_options or intent == "consulta_deuda"
 
     fetched_at = state.get("debt_fetched_at")
     debt_is_fresh = (

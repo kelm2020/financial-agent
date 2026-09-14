@@ -210,7 +210,7 @@ async def test_single_due_date_is_singular_and_offers_a_next_step() -> None:
 async def test_debt_composition_comes_from_the_system_even_without_evidence() -> None:
     async with agent_runtime() as runtime:
         result = await _say(runtime, "¿Por qué me cobran intereses?")
-        assert [call.name for call in runtime.recorder.tool_calls] == ["get_debt"]
+        assert [call.name for call in runtime.recorder.tool_calls] == ["get_customer", "get_debt"]
     assert "$152.000 de capital vencido y $32.500 de intereses" in result.text
     assert "[FAQ" not in result.text
 
@@ -248,8 +248,9 @@ _NEXT_STEP_MARKERS = (
     "canales oficiales",
     "sí o no",
 )
-# §10.1: an injection deflection deliberately does not re-engage with the request.
-_EXEMPT_FROM_NEXT_STEP = frozenset({"deflect"})
+# §10.1: an injection deflection does not re-engage, and an explicit "no, gracias" is a
+# terminal closing rather than another invitation to continue.
+_EXEMPT_FROM_NEXT_STEP = frozenset({"deflect", "no_thanks"})
 
 
 def test_every_static_template_leaves_a_next_step() -> None:
@@ -365,6 +366,19 @@ async def test_classifier_signal_adds_a_derivation_the_router_missed() -> None:
         ),
         # Scattered single words are not a quote.
         ("Me quedé sin trabajo", "sin. trabajo", "vulnerabilidad", False),
+        # Rejecting a plan is not a hardship (promoted from evals/blind A-62:b1, addendum 3).
+        (
+            "No llego con esas tres cuotas, lo descarto.",
+            "No llego con esas tres cuotas, lo descarto.",
+            "vulnerabilidad",
+            False,
+        ),
+        (
+            "Me bajaron las horas en la obra y cobro la mitad",
+            "Me bajaron las horas en la obra",
+            "vulnerabilidad",
+            True,
+        ),
         ("Quiero hablar con una persona ya", "hablar con una persona", "pedido_explicito", True),
         # Rejecting a plan is not a dispute (promoted from evals/blind A-62:b1, addendum 3).
         ("Mirá, yo no puedo en 3 cuotas, lo rechazo.", "lo rechazo", "reclamo", False),
@@ -944,3 +958,131 @@ async def test_closings_and_bare_installments_after_a_list() -> None:
         assert bye.text.startswith("Hasta pronto.")
         hello = await say("hola")
         assert hello.text.startswith("Hola, soy")
+
+
+async def test_confirmation_lists_every_committed_figure() -> None:
+    # Local chat regression: the 9-installment summary omitted the $18.450 advance.
+    from datetime import date as _date
+    from decimal import Decimal as _Decimal
+
+    from app.graph.nodes.respond import _confirmation_text
+    from app.tools.schemas import AgreementDraft
+
+    await idempotency_store.reset()
+    async with agent_runtime() as runtime:
+        conversation = await runtime.service.create_conversation("CUST-00125")
+
+        async def say(text: str) -> Any:
+            return await runtime.service.send_message(
+                conversation.conversation_id,
+                conversation.customer_id,
+                text,
+                context=runtime.context,
+            )
+
+        summary = await say("Quiero la opción de 9 cuotas")
+        assert "anticipo de $18.450 y 9 cuotas de $21.402, total $211.068" in summary.text
+        await say("sí")
+        plan = await say("¿Cuándo vence la primera cuota?")
+        assert "Incluye un anticipo de $18.450." in plan.text
+    single = AgreementDraft(
+        draft_id="draft-single",
+        opcion_id="OPT-1P",
+        monto_total=_Decimal("178000"),
+        cuotas=1,
+        monto_cuota=_Decimal("178000"),
+        fecha_primer_vencimiento=_date(2026, 9, 20),
+        medio_pago="debito_automatico",
+        debt_fingerprint="a" * 64,
+        expires_at=REFERENCE_NOW,
+        policy_refs=[],
+    )
+    assert "un pago único de $178.000, con vencimiento el 20/09/2026" in _confirmation_text(single)
+
+
+def test_plan_asks_for_alternatives_unless_off_topic() -> None:
+    assert route_turn("quiero un plan").intent == "negociacion"
+    assert route_turn("quiero armar un plan de pagos").intent == "negociacion"
+    assert route_turn("¿me recomendás un plan de ahorro?").intent == "fuera_de_dominio"
+    # A dispute that mentions a plan is not a request for one (evals/blind E-62:b3).
+    assert route_turn("Me cobran un plan que nunca firmé").intent != "negociacion"
+
+
+async def test_balance_of_an_account_that_needs_an_advisor_offers_the_advisor() -> None:
+    # Local chat regression: CUST-00377 was offered alternatives, then told it needed an advisor.
+    async with agent_runtime("CUST-00377") as runtime:
+        conversation = await runtime.service.create_conversation("CUST-00377")
+
+        async def say(text: str) -> Any:
+            return await runtime.service.send_message(
+                conversation.conversation_id,
+                conversation.customer_id,
+                text,
+                context=runtime.context,
+            )
+
+        balance = await say("¿Cuánto debo?")
+        assert "tiene que revisar un asesor" in balance.text
+        assert "veamos alternativas" not in balance.text
+        derived = await say("dale")
+        motivos = [
+            c.arguments["motivo"] for c in runtime.recorder.tool_calls if c.name == "request_human"
+        ]
+    assert "derivé" in derived.text and motivos == ["identidad_no_verificada"]
+
+
+async def test_zero_debt_mentions_the_last_credited_payment() -> None:
+    async with agent_runtime("CUST-00450") as runtime:
+        conversation = await runtime.service.create_conversation("CUST-00450")
+        result = await runtime.service.send_message(
+            conversation.conversation_id,
+            conversation.customer_id,
+            "¿Tengo deuda?",
+            context=runtime.context,
+        )
+    assert result.text.startswith("No registrás deuda vigente: tu último pago, de $74.200")
+
+
+def test_short_whole_statements_and_grouped_claims_are_supported() -> None:
+    # Live evaluation: correct model answers citing table rows were rejected as unsupported.
+    from app.guards.grounding import GroundedReply, verify_grounded_reply
+
+    source = {"POL-NEG-003": corpus_chunk("POL-NEG-003").chunk.content}
+    reply = GroundedReply.model_validate(
+        {
+            "text": "",
+            "claims": [
+                {
+                    "sentence": "Un plan en cuotas no acumula quita.",
+                    "section_id": "POL-NEG-003",
+                    "quote": "Un plan en cuotas no acumula quita.",
+                },
+                {
+                    "sentence": "Mora temprana: 0 %. Mora media: 20 %. Mora tardía: 40 %.",
+                    "section_id": "POL-NEG-003",
+                    "quote": "Mora temprana: 0 %. Mora media: 20 %. Mora tardía: 40 %.",
+                },
+                {
+                    "sentence": "Prejudicial: requiere operador.",
+                    "section_id": "POL-NEG-003",
+                    "quote": "Prejudicial: requiere operador.",
+                },
+            ],
+        }
+    )
+    composed = reply.model_copy(update={"text": " ".join(claim.sentence for claim in reply.claims)})
+    assert verify_grounded_reply(composed, source) == ()
+    # A short fragment that is not a whole statement is still not evidence.
+    fragment = GroundedReply.model_validate(
+        {
+            "text": "Requiere operador.",
+            "claims": [
+                {
+                    "sentence": "Requiere operador.",
+                    "section_id": "POL-NEG-003",
+                    "quote": "requiere operador",
+                }
+            ],
+        }
+    )
+    assert "quote_not_in_source" in verify_grounded_reply(fragment, source)

@@ -128,7 +128,7 @@ cases:
       - user: "¿Cuándo tenía que pagar las cuotas?"
         expect_contains: ["10/07/2026", "10/08/2026", "10/09/2026"]
     expect:
-      expected_tools: [get_debt]
+      expected_tools: [get_customer, get_debt]
       forbidden_tools: [search_policies, create_payment_agreement, request_human]
       must_escalate: false
       must_create_agreement: false

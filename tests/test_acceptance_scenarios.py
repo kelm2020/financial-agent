@@ -216,6 +216,8 @@ async def test_a11_customer_without_debt_is_not_escalated() -> None:
     async with conversation("CUST-00450") as chat:
         turn = await chat.say("¿Cuánto debo?")
         assert "No registrás deuda vigente" in turn.text
+        closing = await chat.say("no, gracias")
+        assert closing.text == "De nada. Que tengas un buen día."
         assert chat.posted("/transfer") == 0
 
 

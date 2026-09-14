@@ -157,6 +157,8 @@ class AgreementDraft(StrictDomainModel):
     monto_total: Decimal = Field(gt=0)
     cuotas: int = Field(ge=1, le=24)
     monto_cuota: Decimal = Field(gt=0)
+    # Upfront payment of the frozen option, part of the confirmed terms (0 when there is none).
+    anticipo: Decimal = Field(default=Decimal("0"), ge=0)
     fecha_primer_vencimiento: date
     medio_pago: MedioPago
     debt_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")

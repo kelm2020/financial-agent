@@ -73,6 +73,10 @@ def _canonical_sentence(sentence: str) -> str:
     return " ".join(detection_skeleton(CITATION_LABEL.sub(" ", sentence)).split()).strip(" .")
 
 
+def _quote_key(text: str) -> str:
+    return " ".join(detection_skeleton(plain_text(text)).split()).strip(" .")
+
+
 def split_sentences(text: str) -> list[str]:
     """Sentences with trailing citation-only fragments merged into the previous sentence."""
     sentences: list[str] = []
@@ -106,14 +110,27 @@ def verify_grounded_reply(
         section_id: " ".join(detection_skeleton(plain_text(text)).split())
         for section_id, text in sources.items()
     }
+    # Whole statements of each source: a table row or list item ("Prejudicial: requiere
+    # operador.") is complete support even when it is shorter than the minimum quote.
+    source_statements = {
+        section_id: {_quote_key(sentence) for sentence in split_sentences(plain_text(text))}
+        for section_id, text in sources.items()
+    }
     covered: set[str] = set()
     for claim in reply.claims:
         source = normalized_sources.get(claim.section_id)
-        quote = " ".join(detection_skeleton(plain_text(claim.quote)).split()).strip(" .")
-        if source is None or len(quote.split()) < minimum or quote not in source:
+        quote = _quote_key(claim.quote)
+        whole_statement = quote in source_statements.get(claim.section_id, set())
+        if (
+            source is None
+            or quote not in source
+            or (len(quote.split()) < minimum and not whole_statement)
+        ):
             flags.append("quote_not_in_source")
             continue
         covered.add(_canonical_sentence(claim.sentence))
+        # A claim may group several sentences under one quote; each of them is covered.
+        covered.update(_canonical_sentence(part) for part in split_sentences(claim.sentence))
     sentences = {
         canonical
         for sentence in split_sentences(reply.text)
