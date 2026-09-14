@@ -13,15 +13,15 @@ los efectos quedan bajo control determinista del sistema.
 |---|---|
 | F0 Infraestructura, contratos y mock | Hecha |
 | F1 Invariantes en rojo | Hecha |
-| F2 Políticas y RAG híbrido medido | Hecha (con desviación documentada) |
+| F2 Políticas y RAG híbrido medido | Hecha para el challenge; trade-off recall/abstención medido y mitigado en F3 |
 | F3 Grafo del agente, acuerdos en dos fases, frontera de salida única | Hecha |
 | F4 Evaluación: tres suites, judge calibrado, simulador | Hecha. **Corrida live `K=5` pendiente de repetir** sobre el código actual |
 | F5 Aislamiento en base (RLS, token acotado) | Diferida: tests en rojo deliberado (`xfail`) |
 | F6 Producción medida (OTel, carga, costos) | Diferida |
 | F7 Voz | Diferida: tests en rojo deliberado (`xfail`) |
 
-Verificación local del 14/09/2026, sin claves ni red: **638 tests en verde con cobertura 100 %**,
-suite canónica **122/122** y held-out **30/30** con gates en PASS, y guardrails sin regresiones.
+Verificación local del 14/09/2026, sin claves ni red: **646 tests en verde con cobertura 100 %**,
+suite canónica **126/126** y held-out **30/30** con gates en PASS, y guardrails sin regresiones.
 Las decisiones están en [`docs/decisions/`](docs/decisions/): concurrencia, persistencia y
 frontera de salida en ADR-009; evaluación y cierre de F4 en ADR-010.
 
@@ -34,8 +34,8 @@ bloque 3.
 
 ```bash
 make setup
-make test                          # 621 passed, 17 skipped, 7 xfailed (F5/F7 en rojo deliberado)
-make eval                          # suite canónica sin modelo: 122/122, gates PASS
+make test                          # 629 passed, 17 skipped, 7 xfailed (F5/F7 en rojo deliberado)
+make eval                          # suite canónica sin modelo: 126/126, gates PASS
 make eval-heldout                  # paráfrasis no usadas para ajustar: 30/30, gates PASS
 make eval-blind                    # frases ciegas: 30/32, gates de seguridad PASS
 make eval-guardrails               # detección de injection dev 15/15 y test 18/18, 0 falsos positivos
@@ -49,7 +49,7 @@ make calibrate-judge SPLIT=test    # acuerdo judge-humanos: κ 0,84 (resultados 
 ```bash
 make up          # Postgres/pgvector, Redis, Langfuse, mock y agente
 make ingest      # migra e indexa la base de conocimiento con los embeddings cacheados
-make coverage    # suite completa con Postgres: 638 passed, cobertura 100 %
+make coverage    # suite completa con Postgres: 646 passed, cobertura 100 %
 make eval-rag    # métricas de retrieval sobre el split test
 ```
 
@@ -178,8 +178,9 @@ se evaluó recién después.
 
 Valores de Postgres 17 + pgvector; el store en memoria da los mismos resultados (paridad
 verificada en integración). **El reranker mejora el ranking** (recall@3 = 1,00 en test), pero
-**el criterio de F2 no se cumple**: el gate que abstiene 3/3 también abstiene preguntas
-respondibles. Ni la similitud densa ni el score del cross-encoder separan bien las dos clases, y
+**el objetivo interno más exigente de F2 no se cumple simultáneamente**: el gate que abstiene 3/3
+también abstiene preguntas respondibles. Ni la similitud densa ni el score del cross-encoder
+separan bien las dos clases, y
 en dev el gate de reranker quedó peor que el denso. Una versión anterior reportaba 1,00 / 3/3
 con sinónimos derivados de las queries de test; esa cifra se retiró. Detalle en
 [`evals/reports/retrieval.md`](evals/reports/retrieval.md).
@@ -224,8 +225,8 @@ las capas probabilísticas. Las oportunidades de acción insegura se etiquetan, 
 reporta con denominador.
 
 - **Canónica** (`evals/cases/`, set de desarrollo): 22 casos del §11.3 + 9 regresiones promovidas
-  (`promovidos.yaml`) + 9 regresiones encontradas conversando con el agente (N-07, N-08, N-09,
-  M-03, M-04, C-04, C-05, C-06, X-04) → 122 ejecuciones.
+  (`promovidos.yaml`) + 11 regresiones encontradas conversando con el agente (N-07, N-08, N-09,
+  M-03, M-04, C-04 a C-08, X-04) → 126 ejecuciones.
 - **Held-out** (`evals/heldout/`): 12 casos → 30 ejecuciones con paráfrasis y casos difíciles que
   no se usan para escribir léxicos ni plantillas. La escribió la misma persona que escribió los
   léxicos: es regresión, no un set ciego.
@@ -239,16 +240,16 @@ reporta con denominador.
 
 | Métrica | Canónica | Held-out | Ciega (sin modelo) |
 |---|---:|---:|---:|
-| `tool_selection_f1` | 1,000 | 1,000 | 0,974 |
-| argumentos válidos | 274/274 | 47/47 | 43/43 |
+| `tool_selection_f1` | 1,000 | 1,000 | 0,938 |
+| argumentos válidos | 305/305 | 49/49 | 49/49 |
 | grounded answers | 6/6 | 2/2 | — |
-| números alucinados | 0/166 | 0/38 | 0/40 |
-| policy compliance | 102/102 | 23/23 | 22/24 |
+| números alucinados | 0/171 | 0/38 | 0/40 |
+| policy compliance | 106/106 | 23/23 | 22/24 |
 | unsafe auto action | 0/32 | 0/6 | **0/8** |
 | confirmation bypass | 0/5 | 0/1 | — |
-| recall / precision de escalamiento | 33/33 · 33/33 | 12/12 · 12/12 | 14/16 · 14/14 |
+| recall / precision de escalamiento | 35/35 · 35/35 | 12/12 · 12/12 | 14/16 · 14/14 |
 | trayectoria | 28/28 | 9/9 | — |
-| casos / `pass^1` | 122/122 · 122/122 | 30/30 · 30/30 | 30/32 · 30/32 |
+| casos / `pass^1` | 126/126 · 126/126 | 30/30 · 30/30 | 30/32 · 30/32 |
 
 La columna ciega es la lectura honesta del router determinista: contiene toda acción insegura,
 pero no reconoce un reclamo y un pedido de derivación contados de otra forma. Esa brecha la
@@ -329,7 +330,16 @@ acuerdo sin confirmación. Última corrida: 6/6 personas con la expectativa cump
   el agente acaba de ofrecer (una opción, ver alternativas o derivar); "la 4" o "9 cuotas" eligen
   de la lista; un monto propone la alternativa cuya cuota entra o, si ninguna entra, ofrece un
   asesor; "gracias" y "chau" cierran.
-- **Cliente sin deuda:** un pedido de plan responde que no hay deuda vigente.
+- **Cliente sin deuda:** un pedido de plan responde que no hay deuda vigente y, si el backend lo
+  informa, menciona el último pago acreditado. "No, gracias" se despide sin volver a preguntar.
+- **Confirmación con todas las cifras:** el resumen previo al registro incluye el anticipo cuando
+  la opción lo tiene; el draft congela el anticipo como parte de los términos.
+- **Cuentas que requieren asesor** (identidad sin verificar, prejudicial, planes incumplidos): el
+  saldo ofrece derivar en vez de alternativas que la política no permite. "Quiero un plan" pide
+  alternativas.
+- **Evidencia y rutas del modelo:** una señal de vulnerabilidad tiene que citar una causa grave, y
+  un turno restringido por sospecha de injection nunca sigue una ruta que eligió sólo el modelo.
+  Una fila de tabla completa vale como cita aunque sea corta.
 
 ## Matriz de invariantes
 
@@ -372,7 +382,7 @@ make coverage         # suite completa con Postgres (make up), cobertura 100 %
 make test-rag         # integración de retrieval con pgvector
 make eval-rag         # retrieval sobre el split test, en memoria y contra Postgres
 make eval-guardrails  # guardrails nivel A, dev y test
-make eval             # nivel A: 40 casos canónicos, 122 ejecuciones y gates
+make eval             # nivel A: 42 casos canónicos, 126 ejecuciones y gates
 make eval-heldout     # nivel A sobre la suite held-out
 make eval-blind       # nivel A sobre frases ciegas (bloquean sólo los gates de seguridad)
 make eval-live K=5    # nivel B con proveedor real (DATASET=heldout|blind, JUDGE_MODEL=...)
