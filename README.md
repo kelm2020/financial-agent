@@ -1,33 +1,118 @@
 # Agente conversacional de cobranzas
 
-Implementación por fases del challenge técnico de Froneus. El LLM interpreta y redacta;
-la identidad, las reglas de negocio, la confirmación y los efectos quedan bajo control
-determinista del sistema.
+Challenge técnico de Froneus (Senior GenAI Engineer). Un agente que conversa con un cliente en
+mora, consulta su deuda y sus opciones, negocia dentro de política, registra acuerdos con
+confirmación explícita y deriva a una persona cuando corresponde. El LLM clasifica lo que el
+router determinista no resuelve y sólo redacta respuestas de política de alto riesgo, con una
+cita verificada por oración; la identidad, los números, las reglas de negocio, la confirmación y
+los efectos quedan bajo control determinista del sistema.
 
 ## Estado
 
-**F3 implementada sobre F0–F2 y corregida tras una auditoría independiente** (pendiente de
-re-auditoría para el cierre formal). La API ejecuta un `StateGraph` async con:
+| Fase | Estado |
+|---|---|
+| F0 Infraestructura, contratos y mock | Hecha |
+| F1 Invariantes en rojo | Hecha |
+| F2 Políticas y RAG híbrido medido | Hecha (con desviación documentada) |
+| F3 Grafo del agente, acuerdos en dos fases, frontera de salida única | Hecha |
+| F4 Evaluación: tres suites, judge calibrado, simulador | Hecha. **Corrida live `K=5` pendiente de repetir** sobre el código actual |
+| F5 Aislamiento en base (RLS, token acotado) | Diferida: tests en rojo deliberado (`xfail`) |
+| F6 Producción medida (OTel, carga, costos) | Diferida |
+| F7 Voz | Diferida: tests en rojo deliberado (`xfail`) |
 
-- preflight anterior al checkpoint;
-- fan-out de guard/router con join único;
-- protocolo de acuerdo en dos fases que relee y revalida antes de proponer y de ejecutar, y nunca
-  reconstruye un draft;
-- una sola frontera de salida (`render_and_validate`), donde el candidato del modelo vive sólo
-  como variable local.
+Verificación local del 14/09/2026, sin claves ni red: **638 tests en verde con cobertura 100 %**,
+suite canónica **122/122** y held-out **30/30** con gates en PASS, y guardrails sin regresiones.
+Las decisiones están en [`docs/decisions/`](docs/decisions/): concurrencia, persistencia y
+frontera de salida en ADR-009; evaluación y cierre de F4 en ADR-010.
 
-Producción persiste con `AsyncPostgresSaver` sobre pool y serializa cada conversación con
-advisory lock de sesión (`pg_try_advisory_lock`), probado entre sesiones y entre procesos. Los
-unitarios usan el mismo grafo con saver y lock en memoria.
+## Cómo evaluar
 
-El modelo nunca ve la tool de escritura ni el `customer_id`. Puede clasificar o redactar detrás
-de `LLMClient`; el runtime real usa la Responses API con salida estructurada. Los tests usan
-`ScriptedLLM`, y `tests/conftest.py` ignora `.env`, vacía las claves de proveedores y bloquea los
-transportes HTTP reales, así que una clave local nunca convierte la suite en llamadas pagas.
+Requisitos: [`uv`](https://docs.astral.sh/uv/) (instala Python 3.12 solo). Docker sólo para el
+bloque 3.
 
-Sin credenciales, la aplicación responde por caminos deterministas y plantillas. Eso también
-desactiva el clasificador de injection (sin él no hay `deflect`; las reglas siguen en `restrict`)
-y el retrieval de producción (las consultas de política se abstienen).
+**1. Sin claves ni Docker (gratis, 2–3 minutos)**
+
+```bash
+make setup
+make test                          # 621 passed, 17 skipped, 7 xfailed (F5/F7 en rojo deliberado)
+make eval                          # suite canónica sin modelo: 122/122, gates PASS
+make eval-heldout                  # paráfrasis no usadas para ajustar: 30/30, gates PASS
+make eval-blind                    # frases ciegas: 30/32, gates de seguridad PASS
+make eval-guardrails               # detección de injection dev 15/15 y test 18/18, 0 falsos positivos
+make calibrate-judge SPLIT=test    # acuerdo judge-humanos: κ 0,84 (resultados guardados)
+```
+
+**2. Conversar con el agente** (requiere `OPENAI_API_KEY`; ver la sección siguiente)
+
+**3. Stack completo con Docker (opcional)**
+
+```bash
+make up          # Postgres/pgvector, Redis, Langfuse, mock y agente
+make ingest      # migra e indexa la base de conocimiento con los embeddings cacheados
+make coverage    # suite completa con Postgres: 638 passed, cobertura 100 %
+make eval-rag    # métricas de retrieval sobre el split test
+```
+
+**4. Evaluación con el modelo real (opcional, consume créditos)**
+
+```bash
+make eval-live K=5 JUDGE_MODEL=gpt-4.1-mini-2025-04-14                  # canónica
+make eval-live K=5 DATASET=heldout JUDGE_MODEL=gpt-4.1-mini-2025-04-14
+make eval-live K=5 DATASET=blind JUDGE_MODEL=gpt-4.1-mini-2025-04-14
+make eval-sim                                                            # personas simuladas
+```
+
+Sin `OPENAI_API_KEY` la aplicación funciona por caminos deterministas y plantillas, pero sin
+clasificador de injection ni retrieval: las preguntas de política responden que no hay evidencia.
+
+## Probar el agente conversando
+
+En `.env` hacen falta `OPENAI_API_KEY` y `OPENAI_AGENT_MODEL=gpt-5-nano`. Si levantaste el stack
+con `make up`, pará antes sus servicios de agente y mock (`docker compose stop agent mock`): usan
+los mismos puertos.
+
+```bash
+cp .env.example .env
+make setup
+make mock    # terminal 1: backend simulado en :8001, con las fechas de los fixtures ancladas a hoy
+make run     # terminal 2: agente en :8000, con conversaciones e índice RAG en memoria
+make chat    # terminal 3: conversás como CUST-00125; CUSTOMER=CUST-00212 para otra cuenta
+```
+
+| Cliente | Situación | Qué probar |
+|---|---|---|
+| `CUST-00125` | mora media, tres vencimientos impagos | saldo, opciones, acuerdo con confirmación, quita, medios de pago |
+| `CUST-00212` | prejudicial | un pedido de plan se deriva a un operador |
+| `CUST-00377` | mora temprana, identidad sin verificar | un plan requiere validar identidad con un asesor |
+| `CUST-00450` | sin deuda vigente | "¿cuánto debo?" no inventa una deuda |
+
+Guion con los seis escenarios del enunciado: "¿Cuánto debo?", "No puedo pagar todo este mes. ¿Qué
+opciones tengo?", "Quiero la opción de 3 cuotas" (y después "sí"), "Quiero pagar lo que pueda",
+"¿Quién va a ganar el Mundial?" y "Quiero hablar con una persona".
+
+- El mock guarda los acuerdos en memoria: para repetir un acuerdo con el mismo cliente, reiniciá
+  `make mock`.
+- `make run` se reinicia solo al cambiar el código y las conversaciones viven en memoria: si el
+  servidor se reinicia, el chat avisa y empieza una conversación nueva.
+- El token del mock dura cinco minutos: `make chat` lo renueva solo y reenvía el mensaje. Ctrl+C o
+  `salir` terminan el chat.
+
+## Estructura del repositorio
+
+| Carpeta | Contenido |
+|---|---|
+| `app/` | API FastAPI y agente: grafo LangGraph (`graph/`), guardrails (`guards/`), motor de políticas (`policy/`), RAG (`rag/`), tools y contratos (`tools/`), prompts y CLI de chat |
+| `mock_api/` | Backend simulado: clientes, deuda, opciones, acuerdos idempotentes y fallas inyectables |
+| `kb/` | Base de conocimiento: negociación, medios de pago, escalamiento y FAQ |
+| `evals/` | Suites canónica, held-out y ciega, judge, simulador de personas y reportes |
+| `scripts/` | Ingesta, cachés de embeddings y reranker, calibración y evaluaciones |
+| `tests/` | Invariantes, contratos, guardrails, grafo, evaluaciones y CLI |
+| `config/` | Settings, umbrales de guardrails, allowlist de contactos y modelos |
+| `migrations/` | Alembic para Postgres + pgvector |
+| `data/` | Cachés commiteados de embeddings y reranker (reproducibles sin red) |
+| `docs/decisions/` | ADRs |
+
+## Arquitectura
 
 ### Recorrido de un turno
 
@@ -47,8 +132,23 @@ flowchart LR
   J --> K["compact_context: 8 turnos + resumen"]
 ```
 
-Las decisiones de concurrencia, persistencia y frontera de salida están en
-[`docs/decisions/ADR-009-graph-boundaries.md`](docs/decisions/ADR-009-graph-boundaries.md).
+La API ejecuta un `StateGraph` async con:
+
+- preflight anterior al checkpoint;
+- fan-out de guard/router con join único;
+- protocolo de acuerdo en dos fases que relee y revalida antes de proponer y de ejecutar, y nunca
+  reconstruye un draft;
+- una sola frontera de salida (`render_and_validate`), donde el candidato del modelo vive sólo
+  como variable local.
+
+Producción persiste con `AsyncPostgresSaver` sobre pool y serializa cada conversación con
+advisory lock de sesión (`pg_try_advisory_lock`), probado entre sesiones y entre procesos. Los
+unitarios usan el mismo grafo con saver y lock en memoria.
+
+El modelo nunca ve la tool de escritura ni el `customer_id`. Clasifica o redacta detrás de
+`LLMClient`; el runtime real usa la Responses API con salida estructurada. Los tests usan
+`ScriptedLLM`, y `tests/conftest.py` ignora `.env`, vacía las claves de proveedores y bloquea los
+transportes HTTP reales, así que una clave local nunca convierte la suite en llamadas pagas.
 
 ### Motor de políticas
 
@@ -96,45 +196,140 @@ se conserva el gate calibrado de retrieval.
 ### Guardrails: resultados medidos (`make eval-guardrails`, nivel A)
 
 Las entradas de usuario pasan por el preflight y las reglas reales **sin veredicto de
-clasificador**. KB/backend se miden por su encapsulado como datos no confiables y los resúmenes
-por su validador específico; no se cuentan como si hubieran atravesado `guard_in`. Las salidas pasan por
-`validate_candidate`, la misma validación completa de `render_and_validate` (validador invertido,
-citas y citas textuales de alto riesgo), contra el estado de `CUST-00125`. Los patrones y léxicos
-se ajustaron sólo sobre dev; test se corrió una vez, después de congelarlos.
+clasificador**. KB y backend se miden por su encapsulado como datos no confiables y los resúmenes
+por su validador específico. Las salidas pasan por `validate_candidate`, la misma validación de
+`render_and_validate` (validador invertido, citas y citas textuales de alto riesgo), contra el
+estado de `CUST-00125`. Los patrones y léxicos se ajustaron sólo sobre dev; test se corrió
+después de congelarlos.
 
-| Split | Guard usuario | Indirecto contenido | Resumen rechazado | `benign_deflect` | Escape salida |
+| Split | Guard usuario | Indirecto contenido | Resumen rechazado | Benignos restringidos | Escape salida |
 |---|---:|---:|---:|---:|---:|
-| dev | 15/15 | 3/3 | 1/1 | no medido | 0/24 |
-| **test** | **18/18** | **3/3** | **2/2** | **no medido** | **0/33** |
+| dev | 15/15 | 3/3 | 1/1 | 0/12 | 0/24 |
+| **test** | **18/18** | **3/3** | **2/2** | **0/20** | **0/33** |
 
 Nivel A reporta `benign_deflect=0/0`: sin clasificador no inventa un denominador ni afirma ese
-gate. El CLI acepta `--classifier-results` con un mapa externo completo de resultados nivel B;
-para sostener una tasa ≤ 0,02 con cota unilateral de Clopper-Pearson hacen falta al menos 149
-benignos sin deflect. El split test detecta 18/18 ataques; la baseline versionada falla ante una
-regresión mayor a 0,05.
+gate. Para sostener una tasa ≤ 0,02 con cota unilateral de Clopper-Pearson hacen falta al menos
+149 benignos sin deflect; el CLI acepta `--classifier-results` con resultados nivel B. La
+re-auditoría independiente aportó otros 40 benignos rioplatenses y 40 salidas adversariales, como
+regresiones separadas: 0/40 deflects deterministas y 0/40 escapes.
 
-La re-auditoría independiente aportó otros 40 benignos rioplatenses y 40 salidas adversariales.
-Viven como regresiones separadas del split held-out: 0/40 deflects deterministas y 0/40 escapes.
+Un pedido del prompt o de las instrucciones internas recibe un límite fijo, sin búsqueda de
+políticas ni oferta de derivación. Pendiente conocido: el léxico de compliance todavía no bloquea
+la presión implícita ("después puede ser tarde").
 
-### Suite
+## Evaluación (F4)
 
-`RUN_POSTGRES_TESTS=1 uv run pytest --cov`: **445 passed, 7 xfailed, cobertura 100 %** (4052
-statements), sin `.env` ni claves. Sin Postgres: 428 passed, 17 skipped, 7 xfailed. Incluye:
+Tres suites de comportamiento sobre el grafo, las policies y el mock reales; sólo se sustituyen
+las capas probabilísticas. Las oportunidades de acción insegura se etiquetan, así que el cero se
+reporta con denominador.
 
-- las invariantes con el runtime real (drafts congelados, fallas reales del backend,
-  checkpointer espía para INV-18);
-- los 26 contratos con nombre de §10.1.8;
-- los escenarios del Anexo A de punta a punta por HTTP/SSE;
-- integración con PostgreSQL: round-trip, lock entre sesiones y entre procesos, liberación ante
-  error o cancelación, reset efectivo de conexiones y pool acotado.
+- **Canónica** (`evals/cases/`, set de desarrollo): 22 casos del §11.3 + 9 regresiones promovidas
+  (`promovidos.yaml`) + 9 regresiones encontradas conversando con el agente (N-07, N-08, N-09,
+  M-03, M-04, C-04, C-05, C-06, X-04) → 122 ejecuciones.
+- **Held-out** (`evals/heldout/`): 12 casos → 30 ejecuciones con paráfrasis y casos difíciles que
+  no se usan para escribir léxicos ni plantillas. La escribió la misma persona que escribió los
+  léxicos: es regresión, no un set ciego.
+- **Ciega** (`evals/blind/`): 8 categorías → 32 frases escritas por gpt-5-mini a partir sólo de la
+  situación de negocio, sin acceso al router, las plantillas ni las respuestas esperadas. Sin
+  modelo no hay comprensión de lenguaje, así que en nivel A sólo bloquean los gates de seguridad;
+  en live bloquean todos. Las frases no se editan: si una motiva un cambio, se promueve y se
+  reemplaza (`make generate-blind-phrasings --replace CASO:variante`, ADR-010).
 
-Mutation testing manual sobre una copia aislada: los 20 mutantes de controles de seguridad mueren.
-Uno (opciones sin filtrar + expiración extendida en el refresh) sólo muere al quitar también la
-segunda pasada de `evaluar_propuesta`, que es la defensa redundante prevista en §8.3.2.
+### Nivel A (sin modelo), 14/09/2026
 
-Los siete `xfail(strict=True)` son deliberados: INV-19/20 pertenecen a F5 e INV-15/16/17 a F7, y
-fallan con `NotImplementedError` desde un driver diferido. La API rechaza `channel="voice"`
-hasta F7.
+| Métrica | Canónica | Held-out | Ciega (sin modelo) |
+|---|---:|---:|---:|
+| `tool_selection_f1` | 1,000 | 1,000 | 0,974 |
+| argumentos válidos | 274/274 | 47/47 | 43/43 |
+| grounded answers | 6/6 | 2/2 | — |
+| números alucinados | 0/166 | 0/38 | 0/40 |
+| policy compliance | 102/102 | 23/23 | 22/24 |
+| unsafe auto action | 0/32 | 0/6 | **0/8** |
+| confirmation bypass | 0/5 | 0/1 | — |
+| recall / precision de escalamiento | 33/33 · 33/33 | 12/12 · 12/12 | 14/16 · 14/14 |
+| trayectoria | 28/28 | 9/9 | — |
+| casos / `pass^1` | 122/122 · 122/122 | 30/30 · 30/30 | 30/32 · 30/32 |
+
+La columna ciega es la lectura honesta del router determinista: contiene toda acción insegura,
+pero no reconoce un reclamo y un pedido de derivación contados de otra forma. Esa brecha la
+cubre el modelo: el clasificador del guard devuelve una señal de derivación con cita textual que
+sólo puede agregar derivaciones (ADR-010).
+
+### Live (`gpt-5-nano`, k=5)
+
+`make eval-live` ejecuta `pass^k` con el proveedor real y publica JSON con p95, costo, diffs y un
+diagnóstico por turno de cada falla. `model_answers_accepted` mide cuántas respuestas redactadas
+por el modelo pasan la validación de citas (C-04 recorre ese camino).
+
+> **Pendiente de repetir.** La tabla siguiente es de una corrida anterior a los arreglos del
+> addendum 3 de ADR-010 (respuestas con citas, ofertas recordadas, derivación sin duplicados y 9
+> casos canónicos nuevos). Se reemplaza con la próxima corrida.
+
+| Métrica | Canónica | Held-out | Ciega |
+|---|---:|---:|---:|
+| `pass^5` (casos que pasan las 5 repeticiones) | **92/92** | **30/30** | 30/32 |
+| números alucinados | 0/550 | 0/190 | 0/200 |
+| unsafe auto action | 0/120 | 0/30 | **0/40** |
+| policy compliance | 360/360 | 115/115 | 117/120 |
+| recall / precision de escalamiento | 165/165 · 165/165 | 60/60 · 60/60 | 77/80 · 77/77 |
+| judge: todos los criterios pass | 430/460 | 140/150 | 132/160 |
+| p95 de latencia por turno | 3,9 s | 4,4 s | 4,9 s |
+| costo del agente | USD 0,061 | USD 0,021 | USD 0,031 |
+
+El costo del agente rondó USD 0,00013 por conversación evaluada, sin prompt caching y sin contar
+el judge.
+
+### Calidad conversacional: judge binario
+
+- **Criterios binarios** (`app/prompts/judge.md`): `responde_lo_pedido`, `proximo_paso`,
+  `tono_adecuado`, `claridad` y, cuando el caso lo declara, `reconoce_vulnerabilidad`.
+- **Calibración ciega**: 90 muestras etiquetadas (33 respuestas reales, 33 negativos sintéticos y
+  24 controles de contraste). El prompt se iteró sólo en `dev`; el número sale de `test` (51
+  muestras), puntuado con `gpt-4.1-mini-2025-04-14`, el mismo judge de las corridas live.
+- **El judge informa, no bloquea.** Las plantillas se verifican con aserciones de código
+  (`tests/test_agent_quality.py`).
+
+| Criterio (`test`) | humano pass/fail | acuerdo | TPR | TNR | κ |
+|---|---:|---:|---:|---:|---:|
+| **aceptable** (todos los criterios) | 26/25 | 0,92 | 0,85 | 1,00 | **0,84** |
+| `responde_lo_pedido` | 36/15 | 0,92 | 0,92 | 0,93 | 0,82 |
+| `proximo_paso` | 38/13 | 0,84 | 0,87 | 0,77 | 0,61 |
+| `tono_adecuado` | 35/16 | 0,82 | 0,94 | 0,56 | 0,55 |
+| `claridad` | 46/5 | 0,98 | 0,98 | 1,00 | 0,90 |
+| `reconoce_vulnerabilidad` | 9/7 | 1,00 | 1,00 | 1,00 | 1,00 |
+
+El criterio débil es `tono_adecuado`: deja pasar 7 de 16 respuestas con presión que un humano
+rechazó. Por eso el tono se controla antes, con plantillas verificadas y reglas de salida.
+
+```bash
+make collect-judge-samples               # las tres suites con el agente real → judge_calibration.yaml
+make label-judge                         # etiquetador de terminal: p/f por criterio, se retoma
+make score-judge SPLIT=dev               # iterar el prompt sólo con dev
+make score-judge SPLIT=test RESUME=1     # una sola vez, para publicar
+make calibrate-judge SPLIT=test          # TPR/TNR/κ por criterio
+```
+
+`make eval-sim` corre seis personas (duda en la confirmación, vulnerable, reclamo, entre otras)
+contra el agente real y falla si una persona que debía ser derivada no lo fue o si se registra un
+acuerdo sin confirmación. Última corrida: 6/6 personas con la expectativa cumplida.
+
+### Comportamiento que surgió de la evaluación
+
+- **Vulnerabilidad (ESC-002):** reconoce en una oración, no pide detalles, deriva con prioridad y
+  registra una marca en vez del relato. Una señal de crisis indica además pedir ayuda inmediata.
+- **Derivación:** cada motivo tiene su mensaje. Después de derivar, el agente responde consultas
+  pero no vuelve a negociar ni duplica la derivación; una señal nueva de vulnerabilidad sí la
+  actualiza.
+- **Confirmación:** la duda y los modismos afirmativos con "no" conservan el draft; la negación
+  gana (INV-7). Registrar exige una respuesta explícita reconocida (INV-6).
+- **Respuestas deterministas:** saldo, vencimientos y extractos de bajo riesgo no pasan por un
+  modelo. El modelo sólo redacta política de alto riesgo, con el texto visible armado a partir de
+  oraciones citadas y verificadas.
+- **Seguimiento de la conversación:** un "sí", "okey", "mejor no" o "no" corto responde a lo que
+  el agente acaba de ofrecer (una opción, ver alternativas o derivar); "la 4" o "9 cuotas" eligen
+  de la lista; un monto propone la alternativa cuya cuota entra o, si ninguna entra, ofrece un
+  asesor; "gracias" y "chau" cierran.
+- **Cliente sin deuda:** un pedido de plan responde que no hay deuda vigente.
 
 ## Matriz de invariantes
 
@@ -149,7 +344,7 @@ hasta F7.
 | INV-7 | Verde (F3) | test_negative_lexicon_beats_affirmative |
 | INV-8 | Verde (F3) | test_two_concurrent_confirmations_create_one_agreement |
 | INV-9 | Verde (F3) | test_write_unknown_outcome_never_claims_success |
-| INV-10 | Verde (F3) | test_no_hallucinated_numbers; test_injected_policy_chunk_cannot_add_phone |
+| INV-10 | Verde (F3) | test_no_hallucinated_numbers; test_injected_policy_chunk_cannot_add_phone; test_number_in_words_outside_allowed_set_is_blocked |
 | INV-11 | Verde (F3) | test_cross_customer_idor; test_customer_id_cannot_be_changed_by_language |
 | INV-12 | Verde (F3) | test_zero_debt_customer_is_not_escalated; test_not_found_is_not_no_debt |
 | INV-13 | Verde (F3) | test_stale_options_are_refreshed |
@@ -164,68 +359,43 @@ hasta F7.
 | INV-22 | Verde (F3) | test_streamed_clause_is_validated_before_emission |
 | INV-23 | Verde (F3) | test_model_classifier_cannot_lift_a_deterministic_block |
 
-INV-10 incluye además `test_number_in_words_outside_allowed_set_is_blocked`. Los contratos de
-§10.1.8 están en `tests/test_guardrails.py` y los escenarios del Anexo A, en
-`tests/test_acceptance_scenarios.py`.
+Los siete `xfail(strict=True)` son deliberados: INV-19/20 pertenecen a F5 e INV-15/16/17 a F7, y
+fallan con `NotImplementedError` desde un driver diferido. La API rechaza `channel="voice"`
+hasta F7. Los contratos de §10.1.8 están en `tests/test_guardrails.py` y los escenarios del
+Anexo A, en `tests/test_acceptance_scenarios.py`.
 
-## Requisitos
-
-- Python 3.12 (gestionado automáticamente por `uv`).
-- `uv`.
-- Docker con Compose para ejecutar Postgres/pgvector, Redis, Langfuse y el mock integrado.
-
-## Uso local (F3)
+## Referencia de comandos y configuración
 
 ```bash
-cp .env.example .env
-make setup
-make up
-make ingest      # migra e indexa en pgvector con los embeddings cacheados
-make run         # API del agente en :8000 (modo local, sin Postgres)
-make cli TOKEN=<token emitido por el mock>
-make test        # unitarios y invariantes, sin red ni Postgres
-make test-rag    # integración de retrieval con pgvector
-make coverage    # suite completa: grafo/checkpoint/locks + pgvector, cobertura 100 %
-make eval-rag    # split test, en memoria y contra el índice de Postgres
-make eval-guardrails  # métricas de guardrails nivel A, dev y test held-out
+make test             # unitarios e invariantes, sin red ni Postgres
+make coverage         # suite completa con Postgres (make up), cobertura 100 %
+make test-rag         # integración de retrieval con pgvector
+make eval-rag         # retrieval sobre el split test, en memoria y contra Postgres
+make eval-guardrails  # guardrails nivel A, dev y test
+make eval             # nivel A: 40 casos canónicos, 122 ejecuciones y gates
+make eval-heldout     # nivel A sobre la suite held-out
+make eval-blind       # nivel A sobre frases ciegas (bloquean sólo los gates de seguridad)
+make eval-live K=5    # nivel B con proveedor real (DATASET=heldout|blind, JUDGE_MODEL=...)
+make eval-sim         # usuarios simulados multi-turno (OPENAI_SIMULATOR_MODEL)
+make lint             # ruff y mypy
 ```
 
-`data/query_cache.json` y `data/rerank_cache.json` están commiteados. Tests, calibración y
-evaluación leen embeddings y scores reales sin red, y **fallan si falta uno**, en vez de cambiar
-de espacio en silencio. Sólo dos comandos llaman a proveedores, y hay que correrlos cuando cambia
-la KB o un dataset:
+- `.coverage`, `htmlcov/` y `evals/reports/*.json` son artefactos generados e ignorados por git;
+  sólo `evals/reports/retrieval.md` se versiona.
+- `data/query_cache.json` y `data/rerank_cache.json` están commiteados: tests, calibración y
+  evaluación leen embeddings y scores reales sin red y **fallan si falta uno**, en vez de cambiar
+  de espacio en silencio. Sólo `make embeddings-cache` (requiere `OPENAI_API_KEY`) y
+  `make rerank-cache` (requiere `COHERE_API_KEY`) llaman a proveedores; hay que correrlos cuando
+  cambia la KB o un dataset.
+- El judge y el simulador deben usar un modelo distinto de `OPENAI_AGENT_MODEL`; los scripts lo
+  rechazan antes de llamar a la red.
+- Con `APP_ENV=production` el servicio `agent` de Compose usa PostgreSQL para conversaciones y
+  checkpoints. La request al modelo usa Structured Outputs de la Responses API y `store: false`.
+- `SYSTEM_PROMPT_CANARY` debe mantenerse estático entre réplicas para conservar prompt caching; en
+  production, si se omite, se deriva de forma estable desde `MOCK_TOKEN_SECRET`.
+- `POST /auth/token` del mock emite tokens HS256 de cinco minutos sólo para demostrar el alcance
+  por cliente; no reemplaza un IdP real.
 
-- `make embeddings-cache` (requiere `OPENAI_API_KEY`).
-- `make rerank-cache` (requiere `COHERE_API_KEY`; reintenta ante 429 respetando `Retry-After`).
-
-Con `APP_ENV=production` el servicio `agent` de Compose usa PostgreSQL para conversaciones y
-checkpoints. Si `OPENAI_API_KEY` está configurada, habilita el adapter real y embeddings live;
-`OPENAI_AGENT_MODEL` selecciona el modelo. La request usa Structured Outputs de la Responses
-API y `store: false`. Sin la clave, conserva el grafo y sus controles pero responde por caminos
-deterministas.
-
-`SYSTEM_PROMPT_CANARY` debe mantenerse estático entre réplicas para conservar prompt caching. Si
-se omite en production, se deriva de forma estable desde `MOCK_TOKEN_SECRET`; configurarlo
-explícitamente permite rotarlo sin acoplarlo a la clave de autenticación. En local se genera uno
-aleatorio por proceso.
-
-`make calibrate-rag` y `make calibrate-rerank` imprimen los umbrales a partir de dev;
-`make eval-rag-rerank` evalúa test con reranker. `make coverage` y CI corren la suite de
-Postgres: el store de pgvector no tiene exclusión de cobertura.
-
-Servicios locales:
-
-- Mock API y OpenAPI: `http://localhost:8001/docs`
-- Agente y OpenAPI: `http://localhost:8000/docs`
-- Langfuse: `http://localhost:3000`
-- Postgres/pgvector: `localhost:5432`, base `collections`
-- Redis: `localhost:6379`
-
-Para ejecutar el mock sin Docker:
-
-```bash
-make mock
-```
-
-El endpoint local `POST /auth/token` emite tokens HS256 de cinco minutos únicamente para
-demostrar el alcance por cliente. No reemplaza un IdP real.
+Servicios locales: mock y OpenAPI en `http://localhost:8001/docs`, agente en
+`http://localhost:8000/docs`, Langfuse en `http://localhost:3000`, Postgres en `localhost:5432`
+(base `collections`) y Redis en `localhost:6379`.
