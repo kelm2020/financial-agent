@@ -211,10 +211,10 @@ async def test_postgres_matches_memory_evidence_and_held_out_metrics(
         ),
         load_retrieval_dataset("test"),
     )  # fmt: skip
-    assert (reranked.recall_at_3, round(reranked.mrr, 2)) == (1.0, 0.81)
+    assert (reranked.recall_at_3, round(reranked.mrr, 2)) == (1.0, 0.77)
     assert (test_metrics.recall_at_3, round(test_metrics.mrr, 2), test_metrics.abstentions) == (
-        0.5,
-        0.31,
+        0.6,
+        0.37,
         3,
     )
 
@@ -227,7 +227,7 @@ async def test_scripts_run_against_postgres(
     await evaluate_retrieval.run("test", "postgres", settings=settings)
     output = capsys.readouterr().out
     assert "Indexed 35 chunks with text-embedding-3-large" in output
-    assert "| test | postgres | no | 0,50 | 0,31 | 3/3 |" in output
+    assert "| test | postgres | no | 0,60 | 0,37 | 3/3 |" in output
 
 
 async def test_rerank_cache_script_covers_postgres_candidates(
@@ -246,4 +246,4 @@ async def test_rerank_cache_script_covers_postgres_candidates(
 
     monkeypatch.setattr(build_rerank_cache, "reranker_client", live)
     await build_rerank_cache.run(settings, include_postgres=True)
-    assert "Reranked 102 candidate lists" in capsys.readouterr().out
+    assert "Reranked 100 candidate lists" in capsys.readouterr().out

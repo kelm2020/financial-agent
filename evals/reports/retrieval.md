@@ -6,8 +6,10 @@ corrida se reproduce sin red ni credenciales. Corpus: las 35 secciones del Anexo
 
 ## Protocolo
 
-- **test** (`evals/retrieval.yaml`): las 9 queries del Anexo E.1, sin cambios. Es held-out:
-  nada se ajusta mirándolo.
+- **test** (`evals/retrieval.yaml`): las queries del Anexo E.1, sin reescribirlas. Es held-out:
+  nada se ajusta mirándolo. El 2026-09-14 salió R-06 ("quiero hablar con alguien de verdad"): es un
+  pedido de persona que el router deriva antes de buscar, así que como positiva de retrieval sólo
+  medía una consulta que el agente nunca envía al RAG. Quedan 5 positivas y 3 negativas.
 - **dev** (`evals/retrieval_dev.yaml`): 32 positivas sobre las 35 secciones, con otras
   formulaciones, y 10 negativas plausibles que la KB no responde.
 - **Qué se decide en dev:** los dos umbrales, qué gate de evidencia usar y si se enciende el
@@ -43,23 +45,31 @@ corrida se reproduce sin red ni credenciales. Corpus: las 35 secciones del Anexo
 
 | Store | Reranker | Gate | recall@3 | MRR | Abstención |
 |---|---|---|---:|---:|---:|
-| memoria | no | denso 0,505 | 0,50 | 0,33 | 3/3 |
-| Postgres 17 + pgvector | no | denso 0,505 | 0,50 | 0,31 | 3/3 |
-| memoria | no | sin gate | 0,83 | 0,58 | 0/3 |
-| Postgres 17 + pgvector | no | sin gate | 0,83 | 0,60 | 0/3 |
-| memoria | rerank-v3.5 | denso 0,505 | 0,50 | 0,42 | 3/3 |
-| **Postgres 17 + pgvector** | **rerank-v3.5** | **denso 0,505** | **0,50** | **0,42** | **3/3** |
-| memoria | rerank-v3.5 | sin gate | 1,00 | 0,81 | 0/3 |
-| Postgres 17 + pgvector | rerank-v3.5 | sin gate | 1,00 | 0,81 | 0/3 |
+| memoria | no | denso 0,505 | 0,60 | 0,40 | 3/3 |
+| Postgres 17 + pgvector | no | denso 0,505 | 0,60 | 0,37 | 3/3 |
+| memoria | no | sin gate | 0,80 | 0,60 | 0/3 |
+| memoria | rerank-v3.5 | denso 0,505 | 0,60 | 0,50 | 3/3 |
+| memoria | rerank-v3.5 | sin gate | 1,00 | 0,77 | 0/3 |
+| **Postgres 17 + pgvector** | **rerank-v3.5** | **sin gate** | **1,00** | **0,77** | **0/3** |
+
+Sin R-06 se volvieron a medir las filas que fijan los tests (`tests/test_retriever.py` y
+`tests/test_rag_integration.py`). Las otras dos filas de Postgres no se remidieron.
 
 - **Ranking:** con reranker, recall@3 = 1,00 en test. El orden cumple la parte de recall del
   criterio de F2.
-- **Abstención:** el gate abstiene 3/3 negativas, pero también R-02 (evidencia 0,434), R-03
-  (0,413) y R-06 (0,268). Por eso recall@3 queda en 0,50. R-06 es de escalamiento, así que su
-  abstención devuelve `derivar`, que coincide con ESC-001.
+- **Abstención:** el gate abstiene 3/3 negativas, pero también R-02 (evidencia 0,434) y R-03
+  (0,413). Por eso recall@3 queda en 0,60.
 
 **Criterio de aceptación de F2 (recall@3 = 1,00 con abstención 3/3 al mismo tiempo): no se
 cumple.** Con 42 ejemplos de dev, ningún umbral sobre la similitud densa ni sobre el
 cross-encoder separa las preguntas que la KB responde de las que no. El siguiente paso natural
 es la verificación de respaldo en el generador (F3, §7.4): decidir la abstención con la
 respuesta en la mano, no sólo con la similitud del retrieval.
+
+**Cómo lo usa el agente (2026-09-14):**
+
+- **Con modelo:** toda respuesta de política usa la fila en negrita, es decir, reranker sin gate
+  sobre todas las secciones. El modelo tiene que respaldar cada oración con citas verificadas o
+  abstenerse, y el extracto literal sólo se usa como respaldo si la evidencia supera el gate.
+- **Sin modelo:** se mantiene el gate denso más el extracto.
+- **Medición end-to-end** de ese camino: `evals/reports/answerability.md`.

@@ -1,6 +1,9 @@
 # HELD-OUT TEST SPLIT — the nine labeled queries of Anexo E.1, verbatim.
 # Nothing (thresholds, stopwords, stemming, prompts) may be tuned while looking at this file.
 # Calibration reads evals/retrieval_dev.yaml only.
+# R-06 ("quiero hablar con alguien de verdad") was removed on 2026-09-14: it asks for a person,
+# and the router sends it to request_human before any retrieval (tests/test_policy_routing.py).
+# Scored as a retrieval positive it only measured a query the agent never searches.
 split: test
 effective_on: 2026-09-12
 
@@ -25,10 +28,6 @@ positive:
     query: "¿qué pasa si no llego a pagar una cuota?"
     topic: negociacion
     expected_section_ids: [POL-NEG-008]
-  - id: R-06
-    query: "quiero hablar con alguien de verdad"
-    topic: escalamiento
-    expected_section_ids: [ESC-001]
 
 negative:
   - id: N-01

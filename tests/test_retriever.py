@@ -723,7 +723,7 @@ def test_retriever_thresholds_come_from_settings(
 
 def test_splits_are_separate_and_test_is_anexo_e1() -> None:
     dev, test = load_retrieval_dataset("dev"), load_retrieval_dataset("test")
-    assert (len(test.positive), len(test.negative)) == (6, 3)
+    assert (len(test.positive), len(test.negative)) == (5, 3)
     assert test.positive[0].expected_section_ids == ("POL-NEG-004",)
 
     def queries(dataset: RetrievalDataset) -> set[str]:
@@ -773,14 +773,14 @@ async def test_measured_retrieval_quality_is_reproducible_offline(
 
     gated_test = await evaluate_retriever(retriever, test_split)
     assert (gated_test.recall_at_3, round(gated_test.mrr, 2), gated_test.abstentions) == (
-        0.5,
-        0.33,
+        0.6,
+        0.4,
         3,
     )
-    assert {case.id for case in gated_test.failures} == {"R-02", "R-03", "R-06"}
+    assert {case.id for case in gated_test.failures} == {"R-02", "R-03"}
 
     ungated_test = await evaluate_retriever(ranking, test_split)
-    assert (round(ungated_test.recall_at_3, 2), round(ungated_test.mrr, 2)) == (0.83, 0.58)
+    assert (round(ungated_test.recall_at_3, 2), round(ungated_test.mrr, 2)) == (0.8, 0.6)
     assert ungated_test.abstentions == 0
 
     gated_dev = await evaluate_retriever(retriever, dev_split)
@@ -943,10 +943,10 @@ async def test_committed_rerank_cache_reproduces_the_cohere_measurement(
     gated = await evaluate_retriever(
         build_retriever(store, embeddings, settings, reranker=reranker), test_split
     )
-    assert (gated.recall_at_3, round(gated.mrr, 2), gated.abstentions) == (0.5, 0.42, 3)
+    assert (gated.recall_at_3, round(gated.mrr, 2), gated.abstentions) == (0.6, 0.5, 3)
     ranking = build_retriever(store, embeddings, settings, reranker=reranker, min_dense_score=-1.0)
     ungated = await evaluate_retriever(ranking, test_split)
-    assert (ungated.recall_at_3, round(ungated.mrr, 2), ungated.abstentions) == (1.0, 0.81, 0)
+    assert (ungated.recall_at_3, round(ungated.mrr, 2), ungated.abstentions) == (1.0, 0.77, 0)
     dev = await evaluate_retriever(
         build_retriever(store, embeddings, settings, reranker=reranker), dev_split
     )

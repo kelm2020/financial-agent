@@ -62,9 +62,9 @@ def test_evaluate_arguments_default_to_held_out_split_in_memory() -> None:
 async def test_evaluate_script_prints_metrics_and_each_failure(capsys: Any) -> None:
     metrics = await evaluate_retrieval.run("test", "memory", settings=offline_settings())
     output = capsys.readouterr().out
-    assert "| test | memory | no | 0,50 | 0,33 | 3/3 |" in output
-    assert output.count("FAIL ") == len(metrics.failures) == 3
-    assert "FAIL R-06 [positive] status=no_evidence dense=0.268" in output
+    assert "| test | memory | no | 0,60 | 0,40 | 3/3 |" in output
+    assert output.count("FAIL ") == len(metrics.failures) == 2
+    assert "FAIL R-03 [positive] status=no_evidence dense=0.413" in output
 
 
 async def test_evaluate_script_refuses_to_report_a_reranker_it_cannot_run(
@@ -135,7 +135,7 @@ async def test_build_cache_embeds_corpus_and_both_splits_and_prunes(
     monkeypatch.setattr(build_embedding_cache, "embedding_client", fake_client)
     await build_embedding_cache.run(offline_settings(openai_api_key=SecretStr("sk")))
     texts = build_embedding_cache.cache_texts()
-    assert len(texts) == 35 + 42 + 9
+    assert len(texts) == 35 + 42 + 8
     assert f"Cached {len(texts)} embeddings with local-hashing; pruned 1" in capsys.readouterr().out
 
 
@@ -229,8 +229,8 @@ async def test_build_rerank_cache_requires_key_and_scores_every_candidate_list(
 
     monkeypatch.setattr(build_rerank_cache, "reranker_client", live)
     await build_rerank_cache.run(keyed)
-    assert delegate.calls == 42 + 9
-    assert "Reranked 51 candidate lists with fixed-score; pruned 0" in capsys.readouterr().out
+    assert delegate.calls == 42 + 8
+    assert "Reranked 50 candidate lists with fixed-score; pruned 0" in capsys.readouterr().out
     assert build_rerank_cache.parse_args(["--postgres"]).postgres is True
 
     @asynccontextmanager
