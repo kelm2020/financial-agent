@@ -158,6 +158,13 @@ La corrida live `K=5` y otra ronda de pruebas conversando mostraron siete defect
 7. **Cliente sin deuda.** La respuesta menciona el último pago acreditado cuando el backend lo
    informa, y "no, gracias" se despide sin volver a preguntar.
 
+8. **La frase del escenario "Acción" cancelaba la propuesta.** Con el resumen pendiente, "Quiero
+   aceptar la opción de pago que me ofreciste" no estaba en el léxico afirmativo: se repreguntaba
+   y, a la segunda, la propuesta se cancelaba por falta de avance. Una aceptación explícita y
+   completa de lo ofrecido pasa a ser un "sí" determinista, siempre después de las negaciones;
+   el modelo sigue sin poder producir un sí (INV-6). Con una opción propuesta la selecciona, y
+   después de una lista vuelve a mostrarla porque no dice cuál. Se evalúa como variante de A-01.
+
 Casos canónicos nuevos: C-07 (cuenta que requiere asesor) y C-08 (último pago), más variantes de
 "quiero un plan" en N-04 y N-05; N-07 exige ver el anticipo en la confirmación.
 

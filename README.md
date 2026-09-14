@@ -20,8 +20,8 @@ los efectos quedan bajo control determinista del sistema.
 | F6 Producción medida (OTel, carga, costos) | Diferida |
 | F7 Voz | Diferida: tests en rojo deliberado (`xfail`) |
 
-Verificación local del 14/09/2026, sin claves ni red: **646 tests en verde con cobertura 100 %**,
-suite canónica **126/126** y held-out **30/30** con gates en PASS, y guardrails sin regresiones.
+Verificación local del 14/09/2026, sin claves ni red: **653 tests en verde con cobertura 100 %**,
+suite canónica **136/136** y held-out **30/30** con gates en PASS, y guardrails sin regresiones.
 Las decisiones están en [`docs/decisions/`](docs/decisions/): concurrencia, persistencia y
 frontera de salida en ADR-009; evaluación y cierre de F4 en ADR-010.
 
@@ -34,8 +34,8 @@ bloque 3.
 
 ```bash
 make setup
-make test                          # 629 passed, 17 skipped, 7 xfailed (F5/F7 en rojo deliberado)
-make eval                          # suite canónica sin modelo: 126/126, gates PASS
+make test                          # 636 passed, 17 skipped, 7 xfailed (F5/F7 en rojo deliberado)
+make eval                          # suite canónica sin modelo: 136/136, gates PASS
 make eval-heldout                  # paráfrasis no usadas para ajustar: 30/30, gates PASS
 make eval-blind                    # frases ciegas: 30/32, gates de seguridad PASS
 make eval-guardrails               # detección de injection dev 15/15 y test 18/18, 0 falsos positivos
@@ -49,7 +49,7 @@ make calibrate-judge SPLIT=test    # acuerdo judge-humanos: κ 0,84 (resultados 
 ```bash
 make up          # Postgres/pgvector, Redis, Langfuse, mock y agente
 make ingest      # migra e indexa la base de conocimiento con los embeddings cacheados
-make coverage    # suite completa con Postgres: 646 passed, cobertura 100 %
+make coverage    # suite completa con Postgres: 653 passed, cobertura 100 %
 make eval-rag    # métricas de retrieval sobre el split test
 ```
 
@@ -226,7 +226,7 @@ reporta con denominador.
 
 - **Canónica** (`evals/cases/`, set de desarrollo): 22 casos del §11.3 + 9 regresiones promovidas
   (`promovidos.yaml`) + 11 regresiones encontradas conversando con el agente (N-07, N-08, N-09,
-  M-03, M-04, C-04 a C-08, X-04) → 126 ejecuciones.
+  M-03, M-04, C-04 a C-08, X-04) → 136 ejecuciones.
 - **Held-out** (`evals/heldout/`): 12 casos → 30 ejecuciones con paráfrasis y casos difíciles que
   no se usan para escribir léxicos ni plantillas. La escribió la misma persona que escribió los
   léxicos: es regresión, no un set ciego.
@@ -241,15 +241,15 @@ reporta con denominador.
 | Métrica | Canónica | Held-out | Ciega (sin modelo) |
 |---|---:|---:|---:|
 | `tool_selection_f1` | 1,000 | 1,000 | 0,938 |
-| argumentos válidos | 305/305 | 49/49 | 49/49 |
+| argumentos válidos | 350/350 | 49/49 | 49/49 |
 | grounded answers | 6/6 | 2/2 | — |
-| números alucinados | 0/171 | 0/38 | 0/40 |
-| policy compliance | 106/106 | 23/23 | 22/24 |
-| unsafe auto action | 0/32 | 0/6 | **0/8** |
+| números alucinados | 0/188 | 0/38 | 0/40 |
+| policy compliance | 116/116 | 23/23 | 22/24 |
+| unsafe auto action | 0/39 | 0/6 | **0/8** |
 | confirmation bypass | 0/5 | 0/1 | — |
 | recall / precision de escalamiento | 35/35 · 35/35 | 12/12 · 12/12 | 14/16 · 14/14 |
-| trayectoria | 28/28 | 9/9 | — |
-| casos / `pass^1` | 126/126 · 126/126 | 30/30 · 30/30 | 30/32 · 30/32 |
+| trayectoria | 34/34 | 9/9 | — |
+| casos / `pass^1` | 136/136 · 136/136 | 30/30 · 30/30 | 30/32 · 30/32 |
 
 La columna ciega es la lectura honesta del router determinista: contiene toda acción insegura,
 pero no reconoce un reclamo y un pedido de derivación contados de otra forma. Esa brecha la
@@ -322,7 +322,10 @@ acuerdo sin confirmación. Última corrida: 6/6 personas con la expectativa cump
   pero no vuelve a negociar ni duplica la derivación; una señal nueva de vulnerabilidad sí la
   actualiza.
 - **Confirmación:** la duda y los modismos afirmativos con "no" conservan el draft; la negación
-  gana (INV-7). Registrar exige una respuesta explícita reconocida (INV-6).
+  gana (INV-7). Registrar exige una respuesta explícita reconocida por el léxico determinista
+  (INV-6): "sí", "dale" o una aceptación completa como "Quiero aceptar la opción de pago que me
+  ofreciste", el escenario "Acción" del enunciado, que se evalúa en A-01 con la oferta vigente,
+  vencida e inexistente.
 - **Respuestas deterministas:** saldo, vencimientos y extractos de bajo riesgo no pasan por un
   modelo. El modelo sólo redacta política de alto riesgo, con el texto visible armado a partir de
   oraciones citadas y verificadas.
@@ -382,7 +385,7 @@ make coverage         # suite completa con Postgres (make up), cobertura 100 %
 make test-rag         # integración de retrieval con pgvector
 make eval-rag         # retrieval sobre el split test, en memoria y contra Postgres
 make eval-guardrails  # guardrails nivel A, dev y test
-make eval             # nivel A: 42 casos canónicos, 126 ejecuciones y gates
+make eval             # nivel A: 42 casos canónicos, 136 ejecuciones y gates
 make eval-heldout     # nivel A sobre la suite held-out
 make eval-blind       # nivel A sobre frases ciegas (bloquean sólo los gates de seguridad)
 make eval-live K=5    # nivel B con proveedor real (DATASET=heldout|blind, JUDGE_MODEL=...)
