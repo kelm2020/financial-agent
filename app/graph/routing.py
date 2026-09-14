@@ -328,6 +328,32 @@ def proposal_reply(text: str) -> Literal["accept", "reject"] | None:
     return "accept" if _PROPOSAL_ACCEPT.search(normalized) else None
 
 
+# A question about what the policy allows, at the start of the message ("¿Puedo pagar una parte?",
+# "¿qué pasa si no pago una cuota?", "ya pagué y me sigue apareciendo"). Asking for concrete
+# installments, the options or the balance keeps its own route.
+_POLICY_QUESTION = re.compile(
+    r"^(?:(?:hola|buenas|buen dia|una consulta|consulta|disculpa)\s+)*(?:y\s+)?(?:"
+    r"puedo|podria|se puede|se podria|pueden|podrian|me pueden|me podrian|me hacen|es posible|"
+    r"hay forma de|como hago para|que pasa (?:si|con)|cuando se (?:actualiza|acredita|refleja)|"
+    r"hasta cuando|ya pague|si pago|tengo que|me mandan|me envian)\b"
+)
+_NOT_A_POLICY_QUESTION = re.compile(r"\b(?:cuanto debo|saldo|opciones|alternativas|en cuotas)\b")
+_PAY_INTENT = re.compile(
+    r"\b(?:quiero|queria|necesito|vengo a|voy a)\s+(?:pagar|abonar|saldar)\b"
+    r"(?!\s+(?:el|mi|un|una)\s+(?:plan|acuerdo|cuota))"
+)
+
+
+def asks_policy(text: str, installments: int | None = None) -> bool:
+    words = _word_sequence(text)
+    return (
+        installments is None
+        and bool(_POLICY_QUESTION.search(words))
+        and not _NOT_A_POLICY_QUESTION.search(words)
+        and not _OFF_TOPIC.search(detection_skeleton(text))
+    )
+
+
 def route_turn(text: str) -> RouteResult:
     """Deterministic routing table (§8.2). The model only classifies what this leaves ambiguous."""
     normalized = detection_skeleton(text)
@@ -371,14 +397,11 @@ def route_turn(text: str) -> RouteResult:
         return RouteResult(intent="aceptar_opcion", option_id=option_id, installments=installments)
     if _AMOUNT_AMBIGUITY.search(normalized):
         return RouteResult(intent="ambiguo")
-    if _CANNOT_PAY.search(normalized):
-        # "no puedo pagar todo" asks for alternatives even without the word "opciones" (N-04).
-        return RouteResult(intent="negociacion", installments=installments)
     if installments is not None and _has(
         normalized, "cuanto pagaria", "total", "cada cuota", "primera cuota", "primer pago"
     ):
         return RouteResult(intent="negociacion", installments=installments)
-    if _DUE_DATES.search(normalized) or asks_debt_composition(normalized):
+    if asks_debt_composition(normalized):
         return RouteResult(intent="consulta_deuda", topic="faq")
     # "interés" as a word: "me interesa" is an answer, not a question about interest.
     if re.search(r"\binteres(?:es)?\b", normalized) or _has(
@@ -389,6 +412,16 @@ def route_turn(text: str) -> RouteResult:
         "politica de cuotas",
     ):
         return RouteResult(intent="consulta_general", topic="negociacion")
+    if asks_policy(text, installments):
+        # "¿Puedo pagar una parte de la deuda?" or "¿puedo cambiar la fecha de vencimiento?" ask
+        # what the policy allows: the knowledge base answers them, not the balance. No topic is
+        # fixed; the section that answers decides the risk.
+        return RouteResult(intent="consulta_general", topic="any")
+    if _CANNOT_PAY.search(normalized):
+        # "no puedo pagar todo" asks for alternatives even without the word "opciones" (N-04).
+        return RouteResult(intent="negociacion", installments=installments)
+    if _DUE_DATES.search(normalized):
+        return RouteResult(intent="consulta_deuda", topic="faq")
     if _has(normalized, "opciones", "alternativas", "cuotas", "negoci"):
         return RouteResult(intent="negociacion", installments=installments)
     # Strong investment/advice language wins over an incidental mention of "esta deuda".
@@ -411,6 +444,9 @@ def route_turn(text: str) -> RouteResult:
         "medios de pago",
     ):
         return RouteResult(intent="consulta_general", topic="medios_pago")
+    if _PAY_INTENT.search(_word_sequence(text)):
+        # "hola quiero pagar": the balance and its alternatives, not a payment-method search.
+        return RouteResult(intent="consulta_deuda")
     if _has(normalized, "donde llamo", "pagar", "politica"):
         return RouteResult(intent="consulta_general", topic="medios_pago")
     if re.search(r"\b(?:hola|buen dia|buenas|chau|gracias)\b", normalized):

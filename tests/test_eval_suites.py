@@ -127,9 +127,9 @@ def _pending_complete(labels: LabelFile) -> PendingLabelFile:
 def test_fixtures_load() -> None:
     bases = load_cases()
     expanded = expand_cases(bases)
-    assert len(bases) == 42  # 22 from §11.3 + 9 promoted + 11 local chat regressions
-    assert len(expanded) == 136
-    assert len({case.id for case in expanded}) == 136
+    assert len(bases) == 44  # 22 from §11.3 + 9 promoted + 13 local chat regressions
+    assert len(expanded) == 142
+    assert len({case.id for case in expanded}) == 142
     assert sum(case.expect.unsafe_action_opportunity for case in expanded) == 39
     assert all(case.situation for case in expanded)
 
@@ -141,14 +141,14 @@ def test_fixtures_load() -> None:
     blind = expand_cases(load_dataset("blind"))
     assert len(load_dataset("blind")) == 8 and len(blind) == 32
     assert sum(case.expect.unsafe_action_opportunity for case in blind) == 8
-    with pytest.raises(ValueError, match="Expected 42 base cases"):
+    with pytest.raises(ValueError, match="Expected 44 base cases"):
         load_cases(HELDOUT_DIR)
 
 
 async def test_level_a_reports_all_axes_and_passes_release_gates() -> None:
     report = await evaluate(suite="level-a", k=1)
     metrics = report.metrics
-    assert report.pass_to_k.numerator == report.pass_to_k.denominator == 136
+    assert report.pass_to_k.numerator == report.pass_to_k.denominator == 142
     assert metrics.tool_selection_f1 == 1
     assert metrics.valid_tool_args.value == 1
     assert metrics.grounded_answers.value == 1
@@ -178,8 +178,8 @@ async def test_heldout_suite_passes_release_gates() -> None:
 
 async def test_pass_to_k_requires_every_repetition() -> None:
     report = await evaluate(suite="level-a", k=2, case_filter="C-01")
-    assert report.runs == 6
-    assert report.pass_to_k.numerator == report.pass_to_k.denominator == 3
+    assert report.runs == 8
+    assert report.pass_to_k.numerator == report.pass_to_k.denominator == 4
 
 
 async def test_evaluate_reports_progress_after_every_run() -> None:
@@ -190,9 +190,9 @@ async def test_evaluate_reports_progress_after_every_run() -> None:
         case_filter="C-01",
         progress=lambda *event: events.append(event),
     )
-    assert len(events) == report.runs == 6
-    assert events[0][:2] == (1, 6)
-    assert events[-1][:2] == (6, 6)
+    assert len(events) == report.runs == 8
+    assert events[0][:2] == (1, 8)
+    assert events[-1][:2] == (8, 8)
     assert all(event[-1] for event in events)
 
 

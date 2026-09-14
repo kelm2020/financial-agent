@@ -398,6 +398,9 @@ async def _policy_plan(
         return await no_evidence()
     if result.status != "ok" or not result.hits:
         return await no_evidence()
+    if route.topic == "any":
+        # A policy question routed without a topic takes the risk of the section that answers it.
+        high_risk = result.hits[0].chunk.topic in {"negociacion", "escalamiento"}
     return {
         "retrieved": list(result.hits),
         "response_plan": ResponsePlan(
@@ -877,6 +880,7 @@ def policy_extract(plan: ResponsePlan, state: AgentState) -> Candidate | None:
         state.get("last_user_text", ""),
         # A list is an answer set ("which payment methods"): trimming it would drop valid items.
         keep_all=_is_list(hit.chunk.content),
+        heading=hit.chunk.heading,
     )
     if not sentences:
         return None
@@ -904,7 +908,9 @@ def _is_list(content: str) -> bool:
     return bool(lines) and all(re.match(r"^(?:[-*]\s+|\d+\.\s+|\s{2,}\S)", line) for line in lines)
 
 
-def _relevant_sentences(sentences: list[str], query: str, *, keep_all: bool = False) -> list[str]:
+def _relevant_sentences(
+    sentences: list[str], query: str, *, keep_all: bool = False, heading: str = ""
+) -> list[str]:
     """Customer-facing subset of a chunk: no instructions addressed to the agent and, for prose,
     only the sentences that share terms with the question, in their original order (§9.1)."""
     visible = [sentence for sentence in sentences if "agente" not in detection_skeleton(sentence)]
@@ -912,6 +918,10 @@ def _relevant_sentences(sentences: list[str], query: str, *, keep_all: bool = Fa
         return visible
     terms = _stems(query)
     scored = [(len(terms & _stems(sentence)), index) for index, sentence in enumerate(visible)]
+    if scored and terms & _stems(heading):
+        # The opening sentence answers the section's own question ("¿Puedo pagar una parte?" →
+        # "Sí, desde el 10 % del saldo total."), even when it repeats none of its words.
+        scored[0] = (max(scored[0][0], 1), 0)
     # Unrelated sentences are not filler; they only fill in when nothing matches the question.
     candidates = [item for item in scored if item[0]] or scored
     ranked = sorted(candidates, key=lambda item: (-item[0], item[1]))[:_EXTRACT_MAX_SENTENCES]

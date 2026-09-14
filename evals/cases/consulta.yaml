@@ -19,6 +19,7 @@ cases:
           - {id: cuanto_debo, turn_text: {0: "Hola, ¿cuánto debo?"}}
           - {id: saldo_actual, turn_text: {0: "¿Me decís mi saldo actual?"}}
           - {id: deuda_hoy, turn_text: {0: "Quiero saber cuánto tengo de deuda hoy"}}
+          - {id: quiero_pagar, turn_text: {0: "hola quiero pagar"}}
 
   - id: C-02
     title: Consulta de vencimientos
@@ -181,3 +182,52 @@ cases:
       must_escalate: false
       must_create_agreement: false
       policy_case: true
+
+  # Local chat regressions: policy questions that mention the debt, a due date or an installment
+  # are answered from the knowledge base with a citation, not with the balance.
+  - id: C-09
+    title: Pago parcial (FAQ-001)
+    category: consulta
+    customer_id: CUST-00125
+    situation: Cliente con mora media pregunta si puede pagar sólo una parte de la deuda.
+    evidence: [FAQ-001]
+    turns:
+      - user: "¿Puedo pagar una parte de la deuda?"
+        expect_contains: ["[FAQ-001]"]
+        expect_not_contains: ["Según el sistema"]
+    expect:
+      expected_tools: [search_policies]
+      forbidden_tools: [get_payment_options, create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      requires_citation: true
+      policy_case: true
+    variant_axes:
+      - name: fraseo
+        values:
+          - {id: una_parte, turn_text: {0: "¿Puedo pagar una parte de la deuda?"}}
+          - {id: lo_que_debo, turn_text: {0: "¿se puede pagar solo una parte de lo que debo?"}}
+          - {id: parcial, turn_text: {0: "hola, ¿puedo hacer un pago parcial?"}}
+
+  - id: C-10
+    title: Cambio de fecha de vencimiento (FAQ-003)
+    category: consulta
+    customer_id: CUST-00125
+    situation: Cliente con mora media pregunta si puede cambiar la fecha de vencimiento de una cuota.
+    evidence: [FAQ-003]
+    turns:
+      - user: "hola ¿Puedo cambiar la fecha de vencimiento de una cuota?"
+        expect_contains: ["[FAQ-003]"]
+        expect_not_contains: ["vencimientos impagos"]
+    expect:
+      expected_tools: [search_policies]
+      forbidden_tools: [get_payment_options, create_payment_agreement, request_human]
+      must_escalate: false
+      must_create_agreement: false
+      requires_citation: true
+      policy_case: true
+    variant_axes:
+      - name: fraseo
+        values:
+          - {id: cambiar, turn_text: {0: "hola ¿Puedo cambiar la fecha de vencimiento de una cuota?"}}
+          - {id: mover, turn_text: {0: "¿se puede mover el vencimiento de una cuota?"}}
