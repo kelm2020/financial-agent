@@ -35,14 +35,17 @@ _INSTALLMENT_REJECTION = re.compile(
 # classifies what these tables leave as "ambiguo", and it can add an escalation, never remove one.
 _DISPUTE = re.compile(
     r"\breclamo\b|\bimpugn|\bdesconozco\b|\bno (?:la )?reconozco\b|"
-    r"\b(?:esa|esta|la) deuda no es mia\b|\bno es mi deuda\b|\bnunca (?:saque|contrate|pedi)\b|"
+    r"\b(?:esa|esta|la) deuda no es mia\b|\bno es mi deuda\b|"
+    r"\bnunca (?:saque|contrate|pedi|firme|use|solicite|autorice)\b|"
     r"\bno estoy de acuerdo con (?:el|lo que|la)\b|\bdenuncia por el cobro\b|"
     r"\bme (?:estan|estas) cobrando (?:mal|de mas|algo que no)\b|\bcobro indebido\b|"
     r"\b(?:cargo|debito) que (?:yo )?no (?:realice|autorice)\b|"
     r"\bno autorice (?:ningun )?debito\b|\bdebe ser un error de la cuenta\b|"
     r"\bimporte que reclaman no se corresponde\b|\breferencia que me pasan no es mi[oa]\b|"
     r"\bservicio que no figura\b|\bimporte no corresponde (?:a |con )?mi cuenta\b|"
-    r"\bmonto (?:esta )?(?:totalmente )?(?:equivocado|incorrecto)\b"
+    r"\b(?:monto|importe|cargo|cobro|reclam[oa]) (?:esta )?(?:totalmente )?"
+    r"(?:equivocad[oa]|incorrect[oa]|mal)\b|\b(?:importe|cargo) esta mal\b|"
+    r"\bno corresponde con nada\b"
 )
 _LEGAL = re.compile(
     r"\babogad[oa]s?\b|\bdemand(?:a|ar|arlos|arte)\b|\bjudicial\b|\bjuicio\b|"
@@ -87,11 +90,23 @@ _HUMAN = re.compile(
     r"\balguien de verdad\b|\bquiero (?:a |hablar con )?una persona\b|"
     r"\bpersona que (?:tenga|pueda tener) potestad\b|"
     r"\b(?:manda|pasa|conecta|comunica)me (?:a )?alguien\b|"
-    r"\balguien (?:que|con) (?:pueda|potestad para) (?:atender|resolver|revisar)\b|"
+    r"\balguien\b.{0,25}\b(?:que )?(?:pueda|potestad para) "
+    r"(?:atender|resolver|revisar|acceder|arreglar|solucionar|gestionar)\b|"
     r"\b(?:asigna|asigname|pasa|pasame|dame) (?:un|una|el|la) (?:representante|emplead[oa])\b|"
-    r"\b(?:representante|emplead[oa]) que (?:me )?(?:atienda|revise)\b|"
+    r"\b(?:representante|emplead[oa]) que (?:me )?(?:atienda|revise|"
+    r"pueda (?:atender|resolver|revisar))\b|"
+    r"\b(?:transferi|pas|deriv|mand)[a-z]*me a un[a]? (?:representante|emplead[oa]|supervisor|"
+    r"encargad[oa]|responsable|asesor|operador)\b|"
     r"\b(?:telefono|mail) de un[a]? emplead[oa]\b|\brespuestas pregrabadas\b|"
-    r"\bno quiero (?:hablar|seguir) con (?:un|el) (?:bot|robot|asistente virtual)\b"
+    r"\bno quiero (?:hablar|seguir) con (?:un|el) (?:bot|robot|asistente virtual)\b|"
+    # A role with the authority to solve it names a person to take over the case.
+    r"\b(?:responsable|supervisor|encargad[oa]|jefe) (?:con |de )?(?:autoridad|potestad)\b|"
+    r"\bderivaci[oó]n a un(?:a)? (?:responsable|supervisor|encargad[oa]|persona|operador)\b|"
+    # A contact verb with a staff role asks for that person without naming one generically.
+    r"\bme (?:llame|llamen|llama|marque|marquen|contacte|contacten)\b.{0,30}"
+    r"un[a]? (?:supervisor|encargad[oa]|responsable|jefe|gerente|operador|asesor)\b|"
+    # Rejecting the automated answers asks for the human behind them.
+    r"\b(?:respuestas|contestaciones|opciones) automaticas no (?:alcanzan|sirven|resuelven)\b"
 )
 # Evidence vocabulary for a model-only "pedido_explicito": who the customer asks for, or the
 # automated channel they reject. Categories, not phrasings: the router table above stays the
@@ -350,7 +365,8 @@ def proposal_reply(text: str) -> Literal["accept", "reject"] | None:
 # "¿qué pasa si no pago una cuota?", "ya pagué y me sigue apareciendo"). Asking for concrete
 # installments, the options or the balance keeps its own route.
 _POLICY_QUESTION = re.compile(
-    r"^(?:(?:hola|buenas|buen dia|una consulta|consulta|disculpa)\s+)*(?:y\s+)?(?:"
+    r"^(?:(?:hola|buenas|buen dia|una consulta|consulta|disculpa|queria saber|quisiera saber|"
+    r"me pueden decir|me podrias|me puede decir)\s+)*(?:y\s+)?(?:si\s+)?(?:"
     r"puedo|me puedo|podria|se puede|se podria|pueden|podrian|me pueden|me podrian|me hacen|"
     r"es posible|aceptan|hay forma de|como hago para|como es|que pasa (?:si|con)|que hacen|"
     r"que recargo|cuantos dias|cuando se (?:actualiza|acredita|refleja)|hasta cuando|"
@@ -500,6 +516,13 @@ def route_turn(text: str) -> RouteResult:
         "cupon",
         "medio de pago",
         "medios de pago",
+        # Instruments the ontology also names, in the customer's register (blind phrasings).
+        "wallet",
+        "usdt",
+        "stablecoin",
+        "euros",
+        "divisa",
+        "cripto",
     ):
         return RouteResult(intent="consulta_general", topic="medios_pago")
     if _PAY_INTENT.search(_word_sequence(text)):

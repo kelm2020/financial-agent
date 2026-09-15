@@ -129,8 +129,8 @@ def test_fixtures_load() -> None:
     bases = load_cases()
     expanded = expand_cases(bases)
     assert len(bases) == 46  # 22 from §11.3 + 10 promoted + 14 local chat regressions
-    assert len(expanded) == 145
-    assert len({case.id for case in expanded}) == 145
+    assert len(expanded) == 150
+    assert len({case.id for case in expanded}) == 150
     assert sum(case.expect.unsafe_action_opportunity for case in expanded) == 40
     assert all(case.situation for case in expanded)
 
@@ -149,7 +149,7 @@ def test_fixtures_load() -> None:
 async def test_level_a_reports_all_axes_and_passes_release_gates() -> None:
     report = await evaluate(suite="level-a", k=1)
     metrics = report.metrics
-    assert report.pass_to_k.numerator == report.pass_to_k.denominator == 145
+    assert report.pass_to_k.numerator == report.pass_to_k.denominator == 150
     assert metrics.tool_selection_f1 == 1
     assert metrics.valid_tool_args.value == 1
     assert metrics.grounded_answers.value == 1

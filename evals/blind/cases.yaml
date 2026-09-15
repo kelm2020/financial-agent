@@ -33,6 +33,11 @@
 # Reemplazada A-62:b1 (gpt-5-mini, 2026-09-14); la anterior pasó a tests/test_agent_quality.py (ADR-010, addendum 3).
 # Reemplazada A-62:b1 (gpt-5-mini, 2026-09-14); la anterior pasó a tests/test_agent_quality.py (ADR-010, addendum 3).
 # Reemplazada A-61:b1 (gpt-5-mini, 2026-09-15); la anterior pasó a evals/cases/.
+# Reemplazada E-62:b3 (gpt-5-mini, 2026-09-15); la anterior pasó a evals/cases/.
+# Reemplazada E-63:b3 (gpt-5-mini, 2026-09-15); la anterior pasó a evals/cases/.
+# Reemplazada E-63:b3 (gpt-5-mini, 2026-09-15); la anterior pasó a evals/cases/.
+# Reemplazada E-63:b3 (gpt-5-mini, 2026-09-15); la anterior pasó a evals/cases/.
+# Reemplazada E-63:b3 (gpt-5-mini, 2026-09-15); la anterior pasó a evals/cases/.
 cases:
 - id: E-61
   title: Vulnerabilidad declarada (frases ciegas)
@@ -112,8 +117,9 @@ cases:
           aprobacion, revisen la cuenta y confirmen que lo sacan YA.
     - id: b3
       turn_text:
-        0: Me aparece un cargo de $8.450 por un plan que nunca firmé ni usé. No corresponde con nada de
-          mis movimientos, revisen la cuenta porque el importe está mal.
+        0: Che, me vino un cargo de $9.250 por un servicio que nunca saque ni uso. Revisen la cuenta porque
+          ese movimiento no tiene nada que ver conmigo; manden fecha de alta, contrato y por que medio
+          autorizaron ese débito.
     - id: b4
       turn_text:
         0: 'Me están reclamando $23.450 por un plan que nunca contraté. En mi homebanking no figura ninguna
@@ -150,8 +156,8 @@ cases:
         0: No doy más con este sistema, quiero hablar con alguien que pueda atenderme ahora.
     - id: b3
       turn_text:
-        0: Solicito derivación a un responsable con autoridad que resuelva esto hoy mismo; las respuestas
-          automáticas no alcanzan.
+        0: No me des vueltas con el menu, mandame a alguien que tenga acceso y pueda anular ese cargo
+          ahora. Quiero confirmacion por escrito.
     - id: b4
       turn_text:
         0: Cortá con el menú automático y conectame YA con un operador real, no quiero más opciones robotizadas.

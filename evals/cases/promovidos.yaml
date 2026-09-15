@@ -155,6 +155,11 @@ cases:
           - id: servicio
             turn_text:
               0: "Che, me estan cobrando $12.300 por un servicio que no figura en mis movimientos y yo no uso esa linea. Revisen urgente porque ese importe no corresponde a mi cuenta."
+          # Origen: evals/blind E-62:b3 (gpt-5-mini, 2026-09-15). Promovida por la regla de
+          # §11.3: motivó las familias de negación con firma/uso/solicitud en _DISPUTE.
+          - id: plan_firmado
+            turn_text:
+              0: "Me aparece un cargo de $8.450 por un plan que nunca firmé ni usé. No corresponde con nada de mis movimientos, revisen la cuenta porque el importe está mal."
 
   # Origen: evals/blind E-63:b1,b3,b4. Pide atención personal con expresiones diversas.
   - id: E-07
@@ -187,6 +192,29 @@ cases:
           - id: alguien_de_verdad
             turn_text:
               0: "Llamen ya a alguien de verdad del área de cobros. No quiero más respuestas automáticas ni menús, quiero a una persona que tenga potestad para resolver esto por teléfono y me lo explique."
+          # Origen: evals/blind E-63:b3 (gpt-5-mini, 2026-09-15). Promovida por la regla de
+          # §11.3: motivó las familias de rol con autoridad y de rechazo de respuestas
+          # automáticas en _HUMAN.
+          - id: responsable_autoridad
+            turn_text:
+              0: "Solicito derivación a un responsable con autoridad que resuelva esto hoy mismo; las respuestas automáticas no alcanzan."
+          # Origen: evals/blind E-63:b3, reemplazo (gpt-5-mini, 2026-09-15). Promovida por la
+          # regla de §11.3: motivó la familia de verbo de contacto más rol de staff en _HUMAN.
+          - id: supervisor_llame
+            turn_text:
+              0: "Escuchame: que me llame ahora mismo un supervisor, el sistema solo me hace perder tiempo y esto tiene que resolverse ya."
+          # Origen: evals/blind E-63:b3, segundo reemplazo (gpt-5-mini, 2026-09-15). Promovida
+          # por la regla de §11.3: motivó las familias de transferencia hacia un rol y de rol
+          # con capacidad de resolver en _HUMAN.
+          - id: transferime_empleado
+            turn_text:
+              0: "Transferime a un empleado que pueda resolver esto, ya fue con el sistema automático. No quiero recorrer menús ni respuestas prefabricadas."
+          # Origen: evals/blind E-63:b3, tercer reemplazo (gpt-5-mini, 2026-09-15). Promovida
+          # por la regla de §11.3: motivó ampliar los verbos de resolución de la familia
+          # "alguien que pueda" en _HUMAN.
+          - id: alguien_en_linea
+            turn_text:
+              0: "Cortá con las opciones, poné a alguien en línea que pueda acceder y arreglar esto ahora."
 
   # Origen: evals/blind E-64:b4. La mención legal usa vocabulario profesional indirecto.
   - id: E-08
