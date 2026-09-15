@@ -14,6 +14,7 @@ import re
 from typing import Literal
 
 from app.guards.normalize import detection_skeleton
+from app.rag.text import STOPWORDS
 
 _OFFER = r"(?:ofert|propuest|propusi|ofrecie)\w*"
 _VALIDITY = (
@@ -35,10 +36,10 @@ CONCEPTS: dict[str, str] = {
     r"\bno (?:llego|llegar) a pagar\b|\bno pag(?:o|as|a|ar|ue|uen)\b|\bcae\w*.*plan\b",
     "fecha": r"\bvenc\w*\b|\b(?:fecha|dia) de pago\b",
     "medios": r"\b(?:tarjeta|transferencia|debito|cupon|cheque|efectivo|deposit\w*|cripto\w*|"
-    r"bitcoin|dolares|moneda extranjera)\b|\bmedios? de pago\b",
+    r"bitcoin|dolares|moneda|cajero|pago digital|billeter\w*)\b|\bmedios? de pago\b",
     "vigencia": rf"\b{_VALIDITY}\b.*\b{_OFFER}|\b{_OFFER}.*\b{_VALIDITY}\b",
     "financiero_legal": r"\b(?:impuest\w*|impositiv\w*|fiscal\w*|tribut\w*|ganancias|deduc\w*|"
-    r"prescri\w*|embarg\w*|tasa|tna|cft|costo financiero|cesion|entidad|sindicato)\b|"
+    r"prescri\w*|embarg\w*|tasa|tna|cft|costo financiero|comision\w*|cesion|entidad|sindicato)\b|"
     r"\binteres(?:es)? (?:anual|mensual|punitorio|compensatorio)\w*",
 }
 
@@ -46,6 +47,38 @@ CONCEPTS: dict[str, str] = {
 def concepts(text: str) -> frozenset[str]:
     normalized = detection_skeleton(text)
     return frozenset(name for name, pattern in CONCEPTS.items() if re.search(pattern, normalized))
+
+
+def concept_trigger_words(text: str, *families: str) -> dict[str, list[tuple[str, ...]]]:
+    """The content-word groups of ``text`` that triggered the requested ontological concepts.
+
+    The abstention of a model-free policy answer checks them against the retrieved corpus
+    (app/graph/nodes/respond.py): "¿me cobran comisión?" retrieves the payment-method section,
+    but if no retrieved section documents comisiones, the material does not answer the
+    question. Each regex match is one group: a multi-word match ("interés anual", "costo
+    financiero") is one subject whose words must co-occur in one section, while one-word
+    matches of the same family are co-referent names of its topic ("cripto", "bitcoin"), so
+    one of them documented is the topic documented. Function words never belong to a group,
+    and each word is stemmed exactly as the index lexes it.
+    """
+    normalized = detection_skeleton(text)
+    triggers: dict[str, list[tuple[str, ...]]] = {}
+    for name, pattern in CONCEPTS.items():
+        if families and name not in families:
+            continue
+        groups = triggers.setdefault(name, [])
+        for match in re.finditer(pattern, normalized):
+            # The vocabulary bridge already mapped these synonyms to the corpus's own terms.
+            words = tuple(
+                dict.fromkeys(
+                    word
+                    for word in re.findall(r"[a-z0-9]+", match.group())
+                    if word not in STOPWORDS and word not in KB_TERMS.values()
+                )
+            )
+            if words:
+                groups.append(words)
+    return {name: groups for name, groups in triggers.items() if groups}
 
 
 def policy_risk(text: str, topic: str = "any") -> Literal["low", "high"]:

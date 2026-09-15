@@ -15,7 +15,7 @@ from pydantic import ValidationError
 from app.graph.confirmation import recheck_reason
 from app.graph.context import GraphContext
 from app.graph.effects import transfer_to_human
-from app.graph.ontology import policy_risk, retrieval_query
+from app.graph.ontology import concept_trigger_words, policy_risk, retrieval_query
 from app.graph.recorder import TurnBudgetExceeded
 from app.graph.routing import (
     asks_debt_composition,
@@ -44,8 +44,9 @@ from app.guards.output import OutputValidator, ValidationContext
 from app.guards.streaming import ValidatedEventStream, split_clauses
 from app.guards.untrusted import spotlight
 from app.policy.engine import NegotiationProposal, evaluar_propuesta, requiere_escalamiento
-from app.rag.models import SearchHit
+from app.rag.models import SearchHit, Topic
 from app.rag.support import check_answer
+from app.rag.text import tokenize
 from app.tools.schemas import AgreementDraft, EscalationMotivo, OptionsSnapshot, PaymentOption
 
 _CITATION = re.compile(r"\[((?:POL-NEG|PAY-MET|ESC|FAQ)-\d{3})\]", re.IGNORECASE)
@@ -447,6 +448,52 @@ POLICY_CANDIDATES = 10
 _HIGH_RISK_TOPICS = frozenset({"negociacion", "escalamiento"})
 
 
+def _names_undocumented_concept(text: str, hits: Sequence[SearchHit]) -> bool:
+    """Whether the question names a subject that no retrieved section documents.
+
+    The deterministic stand-in for the model's ``unresolved_aspects`` (ADR-011), restricted to
+    the families whose subjects the knowledge base deliberately does not document:
+
+    - ``financiero_legal``: taxes, rates, fees and legal actions (comisión, tasa, impuestos);
+    - ``medios``: the payment instruments the customer names. "¿Puedo pagar con tarjeta?"
+      names an instrument the base documents; "¿con dólares o moneda extranjera?" names ones
+      it never mentions, and the payment-methods section it still retrieves is a neighbour,
+      not evidence.
+
+    Each regex match is one subject group. A multi-word group ("interés anual", "costo
+    financiero") is documented only when one retrieved section carries **all** its words:
+    "interés anual" is not documented by sections that mention interest accrual but no annual
+    rate. One-word groups of the same family are co-referent names of its topic ("cripto",
+    "bitcoin"), so the topic is undocumented only when none of them is documented. Stems match
+    by prefix, the way the Snowball stem of "cripto" prefixes the index lexeme of
+    "criptomonedas". The check retires itself the day the base documents the subject.
+    """
+    triggers = concept_trigger_words(text, "financiero_legal", "medios")
+    if not triggers:
+        return False
+    lexemes_per_hit = tuple(
+        (hit, tuple(tokenize(f"{hit.chunk.heading} {hit.chunk.content}"))) for hit in hits
+    )
+
+    def documented(words: tuple[str, ...]) -> bool:
+        return any(
+            all(
+                any(lexeme.startswith(stem) for lexeme in lexemes)
+                for word in words
+                for stem in tokenize(word)
+            )
+            for _, lexemes in lexemes_per_hit
+        )
+
+    for groups in triggers.values():
+        single = [group for group in groups if len(group) == 1]
+        if single and not any(documented(group) for group in single):
+            return True
+        if any(not documented(group) for group in groups if len(group) > 1):
+            return True
+    return False
+
+
 async def _policy_plan(
     state: AgentState, runtime: Runtime[GraphContext], followup: Followup
 ) -> dict[str, object]:
@@ -480,23 +527,22 @@ async def _policy_plan(
     if not generate and not context.offline_policy_allowed:
         # Production answers policy only when the model judged the material answers the question.
         return await no_evidence("answer_model_required")
-    # With a model, the model answers or declines over a bounded candidate set and every sentence
-    # carries a verified quote: similarity ranks, it never decides abstention (F2 report). Without a
-    # model only the calibrated gate protects the verbatim extract, so the route's topic filters.
-    topic = "any" if generate else route.topic
-    context.recorder.record_tool("search_policies", query=text, topic=topic)
+    # Offline keeps the route's topic filter: it is a coarse but effective guard that kept
+    # neighbour-section extracts out before the model existed. With a model, answerability is
+    # adjudicated over the whole candidate set (ADR-011), so the topic never filters.
+    topic: Topic = "any" if generate else (route.topic or "any")
+    # The vocabulary bridge between the customer's words and the knowledge base's is a property
+    # of the retrieval, not of the generation: without it the offline gate rejected answerable
+    # discount questions because "rebaja" never matches the corpus's "quita" (ADR-011).
+    searched_query = retrieval_query(text)
+    context.recorder.record_tool("search_policies", query=searched_query, topic=topic)
     try:
-        if generate:
-            result = await context.retriever.search_for_generation(
-                retrieval_query(text),
-                topic=topic,
-                effective_on=context.clock.now().date(),
-                limit=POLICY_CANDIDATES,
-            )
-        else:
-            result = await context.retriever.search(
-                text, topic=topic, effective_on=context.clock.now().date()
-            )
+        result = await context.retriever.search_for_generation(
+            searched_query,
+            topic=topic,
+            effective_on=context.clock.now().date(),
+            limit=POLICY_CANDIDATES,
+        )
     except Exception:
         context.recorder.record_event("retriever_unavailable")
         return await no_evidence("retriever_unavailable")
@@ -510,6 +556,16 @@ async def _policy_plan(
     )
     if result.status != "ok" or not result.hits:
         return await no_evidence("no_evidence")
+    if not generate and not result.evidence_gate_passed:
+        # Max-recall retrieval never abstains by itself; without a model the calibrated gate
+        # (§7.4) is what decides whether a verbatim extract may answer at all.
+        return await no_evidence("below_evidence_gate")
+    if not generate and _names_undocumented_concept(text, result.hits):
+        # Without a model nothing adjudicates answerability (ADR-011), so the extract only
+        # answers when every domain concept the question names is documented by the retrieved
+        # sections. "¿Qué comisión cobran?" retrieves PAY-MET-002 with a high score, but the
+        # corpus never mentions comisiones: the neighbour section is not the answer.
+        return await no_evidence("concept_absent_from_corpus")
     # An answer about negotiation or escalation is held to the high-risk checks even when the
     # question's wording did not sound risky.
     answer_risk: Literal["low", "high"] = (
@@ -1006,34 +1062,38 @@ def _template_text(plan: ResponsePlan, state: AgentState) -> str:
 
 
 def policy_extract(plan: ResponsePlan, state: AgentState) -> Candidate | None:
-    """Model-free policy answer: verbatim sentences of the best chunk, each one its own quote."""
-    hit = _first_cited_hit(plan, state)
-    if hit is None:
+    """Model-free policy answer: verbatim sentences of the best matching sections, each one its
+    own quote. Single-concept questions quote one section; multi-concept ones quote the section
+    that documents each family the question names (ADR-011)."""
+    hits = _extract_sections(state.get("last_user_text", ""), plan, state)
+    if not hits:
         return None
     minimum = guardrail_config().grounding_min_quote_words
-    sentences = _relevant_sentences(
-        [
-            sentence
-            for sentence in split_sentences(normalize_visible(customer_view(hit.chunk.content)))
-            if len(sentence.split()) >= minimum
-        ],
-        state.get("last_user_text", ""),
-        # A list is an answer set ("which payment methods"): trimming it would drop valid items.
-        keep_all=_is_list(hit.chunk.content),
-        heading=hit.chunk.heading,
-    )
-    if not sentences:
-        return None
-    claims = GroundedReply.model_validate(
-        {
-            "text": "",
-            "claims": [
-                {"sentence": sentence, "section_id": hit.chunk.section_id, "quote": sentence}
-                for sentence in sentences
+    claims: list[GroundedClaim] = []
+    for hit in hits:
+        sentences = _relevant_sentences(
+            [
+                sentence
+                for sentence in split_sentences(normalize_visible(customer_view(hit.chunk.content)))
+                if len(sentence.split()) >= minimum
             ],
-        }
-    ).claims
-    return Candidate(text=f"{' '.join(sentences)} [{hit.chunk.section_id}]", claims=claims)
+            state.get("last_user_text", ""),
+            # A list is an answer set ("which payment methods"): trimming it would drop items.
+            keep_all=_is_list(hit.chunk.content),
+            heading=hit.chunk.heading,
+        )
+        claims.extend(
+            GroundedClaim(sentence=sentence, section_id=hit.chunk.section_id, quote=sentence)
+            for sentence in sentences
+        )
+    if not claims:
+        return None
+    sections = " ".join(
+        f"[{section}]" for section in dict.fromkeys(claim.section_id for claim in claims)
+    )
+    return Candidate(
+        text=f"{' '.join(claim.sentence for claim in claims)} {sections}", claims=tuple(claims)
+    )
 
 
 def _containment_key(text: str) -> str:
@@ -1077,6 +1137,68 @@ def _verbatim_quotes(claims: Sequence[GroundedClaim], state: AgentState) -> Cand
 
 
 _EXTRACT_MAX_SENTENCES = 3
+_EXTRACT_MAX_SECTIONS = 2
+
+
+def _group_documented(words: tuple[str, ...], lexemes: tuple[str, ...]) -> bool:
+    """Whether a section's lexemes carry every word of one subject group."""
+    return all(
+        any(lexeme.startswith(stem) for lexeme in lexemes)
+        for word in words
+        for stem in tokenize(word)
+    )
+
+
+def _extract_sections(text: str, plan: ResponsePlan, state: AgentState) -> list[SearchHit]:
+    """The cited sections a model-free extract may quote, best dense first.
+
+    A question that names one concept is answered by the semantically closest cited section
+    (the evidence gate's own leg, not the RRF order). A question that names several concepts
+    (pago parcial y quita, un cheque de un tercero a cuenta) is answered by the closest cited
+    section **per family**: one section per concept, so every part of the question is backed
+    by the section that documents it instead of whichever neighbour ranked first.
+    """
+    cited = [
+        hit for hit in state.get("retrieved", []) if hit.chunk.section_id in plan.cited_section_ids
+    ]
+    if not cited:
+        return []
+    families = concept_trigger_words(
+        text,
+        "quita",
+        "anticipo",
+        "parcial",
+        "refinanciacion",
+        "acreditacion",
+        "fecha",
+        "medios",
+        "incumplimiento",
+        "vigencia",
+    )
+    if len(families) < 2:
+        return [max(cited, key=lambda hit: hit.dense_score)]
+    lexemes_per_hit = tuple(
+        (
+            hit,
+            tuple(tokenize(f"{hit.chunk.heading} {hit.chunk.content}")),
+        )
+        for hit in sorted(cited, key=lambda item: item.dense_score, reverse=True)
+    )
+    chosen: dict[str, SearchHit] = {}
+    for family in sorted(families):
+        groups = families[family]
+        single = [group for group in groups if len(group) == 1]
+        wanted = [group for group in groups if len(group) > 1] or single
+        for hit, lexemes in lexemes_per_hit:
+            if any(_group_documented(words, lexemes) for words in wanted):
+                if hit.chunk.section_id not in chosen:
+                    chosen[hit.chunk.section_id] = hit
+                break
+    if not chosen:
+        return [max(cited, key=lambda hit: hit.dense_score)]
+    return sorted(chosen.values(), key=lambda hit: hit.dense_score, reverse=True)[
+        :_EXTRACT_MAX_SECTIONS
+    ]
 
 
 def _stems(text: str) -> set[str]:
@@ -1106,17 +1228,6 @@ def _relevant_sentences(
     candidates = [item for item in scored if item[0]] or scored
     ranked = sorted(candidates, key=lambda item: (-item[0], item[1]))[:_EXTRACT_MAX_SENTENCES]
     return [visible[index] for _, index in sorted(ranked, key=lambda item: item[1])]
-
-
-def _first_cited_hit(plan: ResponsePlan, state: AgentState) -> SearchHit | None:
-    return next(
-        (
-            hit
-            for hit in state.get("retrieved", [])
-            if hit.chunk.section_id in plan.cited_section_ids
-        ),
-        None,
-    )
 
 
 # ------------------------------------------------------------------------------- validation

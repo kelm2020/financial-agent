@@ -99,7 +99,8 @@ async def test_sentence_restating_the_question_with_a_real_quote_is_rejected() -
     async with agent_runtime(llm=llm, retriever=retriever) as runtime:
         result = await _ask(runtime, "¿puedo pagarle una comisión al asesor?")
     assert "comisión" not in result.text
-    assert result.text == _STATIC_TEMPLATES["no_evidence"]
+    # A fee question is financiero_legal: high risk, so the abstention derives.
+    assert result.text == _STATIC_TEMPLATES["no_evidence_high_risk"]
     trimmed = [event for event in runtime.recorder.events if event["type"] == "claims_trimmed"]
     assert trimmed[0]["unsupported"] == 1
 

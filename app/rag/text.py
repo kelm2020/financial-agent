@@ -15,7 +15,9 @@ _WORD = re.compile(r"[a-z0-9]+")
 # pronouns). Content words never belong here, and neither does any synonym table: lexical
 # normalization is accent folding plus the Snowball Spanish stemmer, so nothing in this module
 # is tuned against evaluation queries. Postgres stores these same lexemes (migration 0003).
-_STOPWORDS = frozenset(
+# Closed function-word set shared by the index and the policy ontology: nothing in it
+# can be the subject a question asks about.
+STOPWORDS = frozenset(
     {
         "a", "al", "ante", "con", "contra", "de", "del", "desde", "e", "el", "en", "entre",
         "es", "esa", "ese", "eso", "esta", "este", "esto", "ha", "hay", "la", "las", "le",
@@ -46,7 +48,7 @@ def words(text: str) -> tuple[str, ...]:
 
 
 def tokenize(text: str) -> tuple[str, ...]:
-    content = [word for word in words(text) if len(word) > 1 and word not in _STOPWORDS]
+    content = [word for word in words(text) if len(word) > 1 and word not in STOPWORDS]
     return tuple(_stemmer().stemWords(content))
 
 

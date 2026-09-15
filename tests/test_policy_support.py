@@ -99,8 +99,10 @@ async def test_unresolved_aspect_is_an_abstention_that_offers_a_person() -> None
     async with agent_runtime(llm=llm, retriever=retriever) as runtime:
         result = await ask(runtime, "¿Cuánto tarda la transferencia y qué comisión cobran?")
     assert [call.task for call in llm.calls] == ["grounded_response"]
-    assert result.text == _STATIC_TEMPLATES["no_evidence"]
-    assert "request_human" not in tools(runtime)
+    # The question names a fee (financiero_legal family): it is high risk, so the abstention
+    # derives instead of offering a person.
+    assert "request_human" in tools(runtime)
+    assert "[PAY-MET-002]" not in result.text
     assert answers(runtime)[-1]["outcome"] == "abstained"
     assert answers(runtime)[-1]["reason"] == "unresolved_aspects"
 
@@ -294,7 +296,9 @@ async def test_local_mode_without_a_model_answers_from_the_calibrated_extract() 
     async with agent_runtime(retriever=retriever) as runtime:
         result = await ask(runtime, "¿Puedo pagar una parte de la deuda?")
     assert result.text.endswith("[FAQ-001]")
-    assert retriever.calls == [("search", "any")]
+    # Offline searches through the same max-recall, vocabulary-bridged path the model uses:
+    # only the calibrated gate and the extract decide, never a smaller retrieval (ADR-011).
+    assert retriever.calls == [("search_for_generation", "any")]
     assert answers(runtime)[-1]["outcome"] == "extract"
 
 

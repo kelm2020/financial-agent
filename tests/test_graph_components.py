@@ -412,6 +412,9 @@ async def test_policy_without_evidence_is_graded_by_risk() -> None:
         async def search(self, *args: Any, **kwargs: Any) -> Any:
             raise RuntimeError("index down")
 
+        async def search_for_generation(self, *args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("index down")
+
     faults = (BackendFault("POST", "/transfer", "500"),)
     async with agent_runtime(retriever=BrokenRetriever([]), faults=faults) as runtime:
         conversation = await runtime.service.create_conversation("CUST-00125")

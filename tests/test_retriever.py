@@ -202,7 +202,7 @@ def test_lexical_normalization_has_no_query_tuned_vocabulary() -> None:
     assert not hasattr(text_module, "_SYNONYMS")
     leaked = {"verdad", "hacen", "tengo", "algo", "tienen", "real", "llego", "junto",
               "entrada", "tarda", "descuento", "alguien", "cuantas", "pagar"}  # fmt: skip
-    assert not leaked & text_module._STOPWORDS
+    assert not leaked & text_module.STOPWORDS
     assert tokenize("¿Cuánto TARDA la acreditación?") == tokenize("cuanto tarda la acreditacion")
     assert tokenize("vencimientos") == tokenize("vencimiento")
     assert tokenize("no llego a pagar") == ("no", "lleg", "pag")
