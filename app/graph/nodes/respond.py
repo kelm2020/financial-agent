@@ -30,6 +30,8 @@ from app.guards.grounding import (
     GroundedReply,
     content_stems,
     plain_text,
+    quote_verified,
+    sentence_supported,
     split_sentences,
     verify_grounded_reply,
 )
@@ -50,18 +52,37 @@ _SECTION_ID = re.compile(r"\b(?:POL-NEG|PAY-MET|ESC|FAQ)-\d{3}\b", re.IGNORECASE
 _INLINE_REFERENCE = re.compile(
     r"\s*\((?:ver\s+)?(?:POL-NEG|PAY-MET|ESC|FAQ)-\d{3}\)", re.IGNORECASE
 )
-# Sentences about the agent or about the policy document itself are instructions for whoever
-# applies the policy, not policy for the customer ("…fuera de los límites de este documento…").
-_INTERNAL_TERMS = ("agente", "este documento")
+# The policy documents speak of themselves ("fuera de los límites de este documento"): for the
+# customer those limits are the policies. The sentence stays, only the self-reference changes.
+_DOCUMENT_REFERENCE = re.compile(r"\beste documento\b", re.IGNORECASE)
 
 
 def _is_internal(sentence: str) -> bool:
-    skeleton = detection_skeleton(sentence)
-    return any(term in skeleton for term in _INTERNAL_TERMS)
+    """A sentence addressed to the agent is an instruction, not policy for the customer."""
+    return "agente" in detection_skeleton(sentence)
 
 
 def _customer_text(sentence: str) -> str:
     return " ".join(_INLINE_REFERENCE.sub("", sentence).split())
+
+
+def _verification_source(hit: SearchHit) -> str:
+    """What a quote of this section may be taken from: its heading, the text as written and the
+    customer view the model reads. A literal quote of either is never a false block."""
+    return f"{hit.chunk.heading}\n{hit.chunk.content}\n{customer_view(hit.chunk.content)}"
+
+
+def customer_view(content: str) -> str:
+    """The knowledge base as the customer may read it.
+
+    The model's material, the verbatim extract and quote verification all use this one view, so a
+    quote copied from what the model read is literal in what the verifier checks.
+    """
+    return " ".join(
+        _customer_text(_DOCUMENT_REFERENCE.sub("estas políticas", sentence))
+        for sentence in split_sentences(plain_text(content))
+        if not _is_internal(sentence)
+    )
 
 
 _POLICY_TERMS = ("cuota", "quita", "anticipo", "plazo", "medio de pago", "acreditacion")
@@ -937,7 +958,7 @@ def policy_extract(plan: ResponsePlan, state: AgentState) -> Candidate | None:
     sentences = _relevant_sentences(
         [
             sentence
-            for sentence in split_sentences(normalize_visible(plain_text(hit.chunk.content)))
+            for sentence in split_sentences(normalize_visible(customer_view(hit.chunk.content)))
             if len(sentence.split()) >= minimum
         ],
         state.get("last_user_text", ""),
@@ -947,17 +968,16 @@ def policy_extract(plan: ResponsePlan, state: AgentState) -> Candidate | None:
     )
     if not sentences:
         return None
-    visible = [_customer_text(sentence) for sentence in sentences]
     claims = GroundedReply.model_validate(
         {
             "text": "",
             "claims": [
-                {"sentence": shown, "section_id": hit.chunk.section_id, "quote": sentence}
-                for shown, sentence in zip(visible, sentences, strict=True)
+                {"sentence": sentence, "section_id": hit.chunk.section_id, "quote": sentence}
+                for sentence in sentences
             ],
         }
     ).claims
-    return Candidate(text=f"{' '.join(visible)} [{hit.chunk.section_id}]", claims=claims)
+    return Candidate(text=f"{' '.join(sentences)} [{hit.chunk.section_id}]", claims=claims)
 
 
 _EXTRACT_MAX_SENTENCES = 3
@@ -1126,8 +1146,7 @@ def validate_candidate(
         # The heading is customer-facing text too ("¿Puede pagar un familiar por mí?"): without it
         # a faithful "Sí, se puede pagar por transferencia" looked like an echo of the question.
         sources = {
-            hit.chunk.section_id: f"{hit.chunk.heading}\n{hit.chunk.content}"
-            for hit in state.get("retrieved", [])
+            hit.chunk.section_id: _verification_source(hit) for hit in state.get("retrieved", [])
         }
         flags.extend(
             verify_grounded_reply(grounding, sources, question=state.get("last_user_text", ""))
@@ -1149,12 +1168,6 @@ GROUNDED_INSTRUCTION = (
 )
 
 
-def _customer_facing(content: str) -> str:
-    return " ".join(
-        sentence for sentence in split_sentences(plain_text(content)) if not _is_internal(sentence)
-    )
-
-
 def generation_messages(
     plan: ResponsePlan, state: AgentState, runtime: Runtime[GraphContext], feedback: str | None
 ) -> list[dict[str, str]]:
@@ -1165,7 +1178,7 @@ def generation_messages(
     # The model reads the same markdown-free view its quotes are verified against, without the
     # sentences addressed to the agent: those are internal instructions, not customer policy.
     data = "\n\n".join(
-        spotlight("DATOS_KB", hit.chunk.section_id, _customer_facing(hit.chunk.content))
+        spotlight("DATOS_KB", hit.chunk.section_id, customer_view(hit.chunk.content))
         for hit in state.get("retrieved", [])
     )
     user = (
@@ -1205,25 +1218,40 @@ async def _generate(
     if not grounded.claims:
         return Candidate(text=normalize_visible(grounded.text))
     # The claims are the answer. The visible text is composed from their sentences, so a preamble
-    # or a sentence the model did not back with a quote never reaches the customer. Internal
-    # sentences, sections unrelated to the one that answers, restatements and anything past the
-    # first claims are dropped (local chat: FAQ-003 answered with POL-NEG-009 and PAY-MET-005).
+    # or a sentence the model did not back with a quote never reaches the customer. Sentences for
+    # the agent, sections unrelated to the one that answers and restatements are dropped (local
+    # chat: FAQ-003 answered with POL-NEG-009 and PAY-MET-005). No count cap: it cut tables short.
     visible = [
         claim
         for claim in grounded.claims
         if not (_is_internal(claim.sentence) or _is_internal(claim.quote))
     ]
-    focused = _focused_claims(visible, state.get("retrieved", []))
+    sources = {
+        hit.chunk.section_id.upper(): _verification_source(hit)
+        for hit in state.get("retrieved", [])
+    }
+    # A literal quote does not make its sentence say what the section says: a sentence carrying
+    # another section's content under a real quote of this section is dropped, never shown. A
+    # claim whose quote is not literal stays, so validation rejects it and records why.
+    supported = [
+        claim
+        for claim in visible
+        if claim.section_id.upper() not in sources
+        or not quote_verified(claim.quote, sources[claim.section_id.upper()])
+        or sentence_supported(claim.sentence, sources[claim.section_id.upper()])
+    ]
+    focused = _focused_claims(supported, state.get("retrieved", []))
     claims = [
         claim.model_copy(update={"sentence": _as_sentence(claim.sentence)})
-        for claim in _distinct_claims(focused)[:_MAX_CLAIMS]
+        for claim in _distinct_claims(focused)
     ]
     if len(claims) < len(grounded.claims):
         runtime.context.recorder.record_event(
             "claims_trimmed",
             received=len(grounded.claims),
             internal=len(grounded.claims) - len(visible),
-            unrelated_section=len(visible) - len(focused),
+            unsupported=len(visible) - len(supported),
+            unrelated_section=len(supported) - len(focused),
             kept=len(claims),
         )
     if not claims:
@@ -1239,18 +1267,16 @@ async def _generate(
     return Candidate(text=normalize_visible(text), claims=tuple(claims))
 
 
-_MAX_CLAIMS = 3
-
-
 def _focused_claims(
     claims: Sequence[GroundedClaim], retrieved: Sequence[SearchHit]
 ) -> list[GroundedClaim]:
     """Claims about the answer, not about everything retrieved.
 
     The primary section is the best-ranked retrieved section the model cited. Another section
-    stays only when the knowledge base links the two: the primary refers to it ("según el plazo
-    de cada medio (PAY-MET-002)") or it refers to the primary (an FAQ restating a policy). A claim
-    citing a section that was not retrieved is kept, so validation rejects it instead of hiding it.
+    stays only when the primary refers to it ("según el plazo de cada medio (PAY-MET-002)"). The
+    reverse link is not enough: ESC-001 lists "Pide una excepción a las políticas (POL-NEG-009)",
+    and that list item read out of context under a POL-NEG-009 answer. A claim citing a section
+    that was not retrieved is kept, so validation rejects it instead of hiding it.
     """
     rank: dict[str, int] = {}
     references: dict[str, set[str]] = {}
@@ -1265,7 +1291,6 @@ def _focused_claims(
         return list(claims)
     primary = min(cited, key=rank.__getitem__)
     linked = {primary} | references[primary]
-    linked |= {section for section, found in references.items() if primary in found}
     return [
         claim
         for claim in claims

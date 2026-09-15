@@ -6,7 +6,12 @@ from typing import Any
 
 from app.graph.nodes.respond import _STATIC_TEMPLATES
 from app.graph.recorder import TurnBudgetExceeded
-from app.guards.grounding import GroundedReply, echoed_terms
+from app.guards.grounding import (
+    GroundedReply,
+    echoed_terms,
+    sentence_supported,
+    verify_grounded_reply,
+)
 from app.llm.protocol import ScriptedLLM
 from app.rag.models import RetrievalResult
 from tests.agent_support import StaticRetriever, agent_runtime, corpus_chunk
@@ -95,7 +100,8 @@ async def test_sentence_restating_the_question_with_a_real_quote_is_rejected() -
         result = await _ask(runtime, "¿puedo pagarle una comisión al asesor?")
     assert "comisión" not in result.text
     assert result.text == _STATIC_TEMPLATES["no_evidence"]
-    assert "unsupported_sentence" in result.state["guard_flags"]
+    trimmed = [event for event in runtime.recorder.events if event["type"] == "claims_trimmed"]
+    assert trimmed[0]["unsupported"] == 1
 
 
 def test_echoed_terms_find_question_words_the_source_lacks() -> None:
@@ -217,27 +223,84 @@ async def test_answer_keeps_the_answering_section_and_drops_unrelated_ones() -> 
     assert {
         "type": "claims_trimmed",
         "received": 4,
-        "internal": 1,
-        "unrelated_section": 1,
+        "internal": 0,
+        "unsupported": 0,
+        "unrelated_section": 2,
         "kept": 2,
     } in runtime.recorder.events
 
 
 async def test_a_reply_with_only_internal_claims_is_an_abstention() -> None:
-    internal = "Cualquier condición fuera de los límites de este documento es una excepción."
+    internal = "El agente no aprueba excepciones."
     reply = _claims(
-        (internal, "POL-NEG-009", "Cualquier condición fuera de los límites de este documento")
+        (internal, "POL-NEG-009", "El agente no la aprueba, no la anticipa como probable")
     )
     retriever = BelowGateRetriever([corpus_chunk("POL-NEG-009")])
     async with agent_runtime(llm=ScriptedLLM([reply]), retriever=retriever) as runtime:
         result = await _ask(runtime, "¿se puede pedir una excepción?")
-    assert "este documento" not in result.text
+    assert "agente" not in result.text
     assert {"type": "policy_model_abstained"} in runtime.recorder.events
 
 
-async def test_extract_never_shows_sentences_about_the_agent_or_the_document() -> None:
+async def test_extract_speaks_of_the_policies_not_of_the_agent_or_the_document() -> None:
+    # POL-NEG-009 keeps its customer-facing rule; "este documento" becomes "estas políticas" and
+    # the sentence addressed to the agent is never shown.
     retriever = StaticRetriever([corpus_chunk("POL-NEG-009")])
     async with agent_runtime(retriever=retriever) as runtime:
         result = await _ask(runtime, "¿se puede pedir una excepción?")
+    assert "fuera de los límites de estas políticas" in result.text
+    assert result.text.endswith("[POL-NEG-009]")
     assert "este documento" not in result.text and "agente" not in result.text
-    assert "[POL-NEG-009]" not in result.text
+
+
+def test_claim_sentence_must_say_what_its_cited_section_says() -> None:
+    source = (
+        "¿Puedo cambiar la fecha de vencimiento de una cuota?\n"
+        "El canal automático no cambia fechas. El pedido lo evalúa un operador y debe hacerse al "
+        "menos 48 horas antes del vencimiento."
+    )
+    borrowed = (
+        "Podés cambiar el medio de pago de un plan vigente hasta 48 horas antes del próximo "
+        "vencimiento."
+    )
+    paraphrase = "El canal automático no puede cambiar fechas; el pedido lo evalúa un operador."
+    assert not sentence_supported(borrowed, source)
+    assert sentence_supported(paraphrase, source)
+    assert sentence_supported("Sí, se puede.", source)
+
+
+async def test_a_claim_saying_what_another_section_says_is_dropped_not_blocked() -> None:
+    # Local chat: "Puedes cambiar el medio de pago…" (PAY-MET-005) was shown under a real FAQ-003
+    # quote. The claim is dropped and the rest of the answer stands.
+    good = "El canal automático no cambia fechas."
+    borrowed = (
+        "Podés cambiar el medio de pago de un plan vigente hasta 48 horas antes del próximo "
+        "vencimiento."
+    )
+    reply = _claims((good, "FAQ-003", good), (borrowed, "FAQ-003", good))
+    retriever = StaticRetriever([corpus_chunk("FAQ-003")])
+    async with agent_runtime(llm=ScriptedLLM([reply]), retriever=retriever) as runtime:
+        result = await _ask(runtime, "¿Puedo cambiar la fecha de vencimiento de una cuota?")
+    assert result.text == f"{good} [FAQ-003]"
+    trimmed = [event for event in runtime.recorder.events if event["type"] == "claims_trimmed"]
+    assert trimmed[0]["unsupported"] == 1
+
+
+def test_verifier_rejects_a_sentence_echoing_the_question() -> None:
+    sentence = "La comisión del asesor es del 10 % del saldo total."
+    reply = GroundedReply.model_validate(
+        {
+            "text": sentence,
+            "claims": [
+                {
+                    "sentence": sentence,
+                    "section_id": "FAQ-001",
+                    "quote": "desde el 10 % del saldo total",
+                }
+            ],
+        }
+    )
+    sources = {"FAQ-001": "Sí, desde el 10 % del saldo total."}
+    assert verify_grounded_reply(reply, sources) == ()
+    question = "¿cuánto cobra de comisión el asesor?"
+    assert verify_grounded_reply(reply, sources, question=question) == ("unsupported_sentence",)

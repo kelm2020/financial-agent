@@ -71,6 +71,8 @@ async def test_partial_payment_question_is_answered_from_the_faq() -> None:
     async with agent_runtime(retriever=StaticRetriever([corpus_chunk("FAQ-001")])) as runtime:
         result = await _ask(runtime, "¿Puedo pagar una parte de la deuda?")
     assert result.text.endswith("[FAQ-001]") and "10 %" in result.text
+    # "(POL-NEG-006)" links sections inside the knowledge base; the customer reads the citation.
+    assert "(POL-NEG-006)" not in result.text
     assert [call.name for call in runtime.recorder.tool_calls] == ["search_policies"]
 
 

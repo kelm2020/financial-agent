@@ -120,6 +120,37 @@ def echoed_terms(sentence: str, question: str, source: str) -> set[str]:
     )
 
 
+def sentence_supported(sentence: str, source: str) -> bool:
+    """At least two thirds of a claim sentence's content terms appear in its cited section.
+
+    A literal quote proves the section says something, not that the sentence says the same. A
+    sentence that carries another section's content under this section's quote ("Podés cambiar
+    el medio de pago…" cited as FAQ-003, with a real FAQ-003 quote) keeps about half its terms;
+    a faithful paraphrase keeps nearly all. Very short sentences are left to the quote.
+
+    It is a lexical proxy, not entailment: the agent uses it to drop a claim from an answer, never
+    to block an output (as a block it rejected a correct held-out output, ADR-010).
+    """
+    terms = content_stems(sentence)
+    if len(terms) < 3:
+        return True
+    missing = terms - content_stems(plain_text(source))
+    return 3 * len(missing) <= len(terms)
+
+
+def quote_verified(quote: str, source: str, *, min_quote_words: int | None = None) -> bool:
+    """The quote is literal in the source (accents, case and whitespace folded) and carries at
+    least ``min_quote_words`` words, or is a whole statement of the source: a table row or list
+    item ("Prejudicial: requiere operador.") is complete support even when it is shorter."""
+    minimum = min_quote_words or guardrail_config().grounding_min_quote_words
+    key = _quote_key(quote)
+    if key not in " ".join(detection_skeleton(plain_text(source)).split()):
+        return False
+    return len(key.split()) >= minimum or key in {
+        _quote_key(sentence) for sentence in split_sentences(plain_text(source))
+    }
+
+
 def verify_grounded_reply(
     reply: GroundedReply,
     sources: dict[str, str],
@@ -134,27 +165,12 @@ def verify_grounded_reply(
     empty or one-word quote can never "support" a sentence. Semantic support of a real quote
     remains a declared residual risk (§10.1.9).
     """
-    minimum = min_quote_words or guardrail_config().grounding_min_quote_words
     flags: list[GuardFlag] = []
-    normalized_sources = {
-        section_id: " ".join(detection_skeleton(plain_text(text)).split())
-        for section_id, text in sources.items()
-    }
-    # Whole statements of each source: a table row or list item ("Prejudicial: requiere
-    # operador.") is complete support even when it is shorter than the minimum quote.
-    source_statements = {
-        section_id: {_quote_key(sentence) for sentence in split_sentences(plain_text(text))}
-        for section_id, text in sources.items()
-    }
     covered: set[str] = set()
     for claim in reply.claims:
-        source = normalized_sources.get(claim.section_id)
-        quote = _quote_key(claim.quote)
-        whole_statement = quote in source_statements.get(claim.section_id, set())
-        if (
-            source is None
-            or quote not in source
-            or (len(quote.split()) < minimum and not whole_statement)
+        source = sources.get(claim.section_id)
+        if source is None or not quote_verified(
+            claim.quote, source, min_quote_words=min_quote_words
         ):
             flags.append("quote_not_in_source")
             continue
