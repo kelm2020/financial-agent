@@ -46,6 +46,9 @@ class RouteResult(BaseModel):
     escalation_motivo: EscalationMotivo | None = None
     # Monthly amount the customer said they can pay, in answer to "¿cuánto podrías pagar?".
     monthly_amount: int | None = None
+    # "si" after a numbered list agreed with none in particular: the list comes back with a
+    # prompt to name one, never as a carbon copy of the first time.
+    options_reask: bool = False
 
     @property
     def source(self) -> str:

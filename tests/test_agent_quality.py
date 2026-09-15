@@ -1215,3 +1215,42 @@ async def test_doubt_and_a_method_question_keep_the_draft() -> None:
         turn = await _draft_turns(runtime, "¿Y si lo pago con tarjeta? todavía no estoy seguro")
         assert turn.state["pending_draft"] is not None
         assert runtime.recorder.agreement_writes == []
+
+
+# ------------------------------------------------------- choices from a numbered list
+
+
+async def test_si_la_1_picks_the_first_option_of_the_list() -> None:
+    # Live chat: "si la 1" after the numbered list kept re-offering the list; the customer
+    # answered three times and the reply never changed.
+    async with agent_runtime() as runtime:
+        conversation = await runtime.service.create_conversation("CUST-00125")
+        listed = await runtime.service.send_message(
+            conversation.conversation_id, conversation.customer_id, "no puedo pagar todo",
+            context=runtime.context,
+        )
+        assert "(1)" in listed.text
+        chosen = await runtime.service.send_message(
+            conversation.conversation_id, conversation.customer_id, "si la 1",
+            context=runtime.context,
+        )
+        assert "confirmá" in chosen.text and "pago único" in chosen.text
+        draft = chosen.state["pending_draft"]
+        assert draft is not None and draft.opcion_id == "OPT-1P"
+
+
+async def test_bare_si_after_a_list_asks_which_one() -> None:
+    # A bare "si" agrees with no option in particular: the list comes back asking to name
+    # one, never as a carbon copy of the first reply.
+    async with agent_runtime() as runtime:
+        conversation = await runtime.service.create_conversation("CUST-00125")
+        await runtime.service.send_message(
+            conversation.conversation_id, conversation.customer_id, "no puedo pagar todo",
+            context=runtime.context,
+        )
+        reask = await runtime.service.send_message(
+            conversation.conversation_id, conversation.customer_id, "si",
+            context=runtime.context,
+        )
+        assert "me digas cuál" in reask.text.casefold()
+        assert reask.state["offered_next_step"] == "choose"

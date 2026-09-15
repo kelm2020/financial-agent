@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -50,6 +51,7 @@ from app.guards.output import OutputValidator, ValidationContext
 from app.guards.streaming import ValidatedEventStream, split_clauses
 from app.guards.untrusted import spotlight
 from app.policy.engine import NegotiationProposal, evaluar_propuesta, requiere_escalamiento
+from app.rag.corpus import load_corpus
 from app.rag.models import SearchHit, Topic
 from app.rag.support import check_answer
 from app.rag.text import tokenize
@@ -374,7 +376,9 @@ async def plan_from_route(state: AgentState, runtime: Runtime[GraphContext]) -> 
                     }
         return {
             "response_plan": ResponsePlan(
-                kind="negotiation", template_id="options", followup=followup
+                kind="negotiation",
+                template_id="options_reask" if route.options_reask else "options",
+                followup=followup,
             )
         }
 
@@ -454,8 +458,8 @@ POLICY_CANDIDATES = 10
 _HIGH_RISK_TOPICS = frozenset({"negociacion", "escalamiento"})
 
 
-def _names_undocumented_concept(text: str, hits: Sequence[SearchHit]) -> bool:
-    """Whether the question names a subject that no retrieved section documents.
+def _names_undocumented_concept(text: str, effective_on: date) -> bool:
+    """Whether the question names a subject that the knowledge base does not document.
 
     The deterministic stand-in for the model's ``unresolved_aspects`` (ADR-011), restricted to
     the families whose subjects the knowledge base deliberately does not document:
@@ -464,52 +468,76 @@ def _names_undocumented_concept(text: str, hits: Sequence[SearchHit]) -> bool:
     - ``medios``: the payment instruments the customer names. "¿Puedo pagar con tarjeta?"
       names an instrument the base documents; "¿con dólares o moneda extranjera?" names ones
       it never mentions, and the payment-methods section it still retrieves is a neighbour,
-      not evidence.
+      not evidence;
+    - ``moneda``: the currency a payment would use, its own subject and never co-referent
+      with the vehicle that carries it;
+    - ``devolucion``: getting the advance or a payment back. The base documents no
+      reimbursement, so the question goes to a person instead of the anticipo neighbour.
 
-    Each regex match is one subject group. A multi-word group ("interés anual", "costo
-    financiero") is documented only when one retrieved section carries **all** its words:
-    "interés anual" is not documented by sections that mention interest accrual but no annual
-    rate. One-word groups of the same family are co-referent names of its topic ("cripto",
-    "bitcoin"), so the topic is undocumented only when none of them is documented, while a
-    named **currency** is its own subject: a transfer in dollars is a documented vehicle with
-    an undocumented currency, and what the question asks about is the currency. Stems match
-    by prefix, the way the Snowball stem of "cripto" prefixes the index lexeme of
-    "criptomonedas", and a declared equivalent (``TERM_EQUIVALENTS``) documents its customer
-    word. The check retires itself the day the base documents the subject.
+    Documentation is decided against the whole corpus, not only the retrieved hits: whether
+    the base names criptomonedas anywhere is a fact about the base, not about this query's
+    ranking. The retrieved hits decide what an answer may cite; the corpus decides what
+    exists.
+
+    Each regex match is one subject group. A multi-word group ("interés anual") is documented
+    only when one section carries **all** its words: interest accrual without an annual rate
+    documents nothing. One-word groups of the same family are co-referent names of its topic
+    ("cripto", "bitcoin"), so the topic is undocumented only when none of them is documented,
+    while a named **currency** is its own subject. Stems match by prefix, the way the stem of
+    "cripto" prefixes the index lexeme of "criptomonedas", and a declared equivalent
+    (``TERM_EQUIVALENTS``) documents its customer word. The check retires itself the day the
+    base documents the subject.
     """
-    triggers = concept_trigger_words(text, "financiero_legal", "medios", "moneda")
+    triggers = concept_trigger_words(
+        text, "financiero_legal", "medios", "moneda", "devolucion"
+    )
     if not triggers:
         return False
-    lexemes_per_hit = tuple(
-        (hit, tuple(tokenize(f"{hit.chunk.heading} {hit.chunk.content}"))) for hit in hits
-    )
+    sections = _corpus_section_lexemes(effective_on)
+    union = tuple(lexeme for section in sections for lexeme in section)
 
-    def documented(words: tuple[str, ...]) -> bool:
+    def expands(words: tuple[str, ...]) -> tuple[str, ...]:
         # TERM_EQUIVALENTS maps a customer word to the corpus word with the same meaning.
-        expanded = tuple(
-            synonym for word in words for synonym in TERM_EQUIVALENTS.get(word, (word,))
+        return tuple(synonym for word in words for synonym in TERM_EQUIVALENTS.get(word, (word,)))
+
+    def documented_anywhere(words: tuple[str, ...]) -> bool:
+        return all(
+            any(lexeme.startswith(stem) for lexeme in union)
+            for word in expands(words)
+            for stem in tokenize(word)
         )
+
+    def documented_together(words: tuple[str, ...]) -> bool:
         return any(
             all(
-                any(lexeme.startswith(stem) for lexeme in lexemes)
-                for word in expanded
+                any(lexeme.startswith(stem) for lexeme in section)
+                for word in expands(words)
                 for stem in tokenize(word)
             )
-            for _, lexemes in lexemes_per_hit
+            for section in sections
         )
 
     for family, groups in triggers.items():
         if family == "moneda":
             # A named currency is its own subject, never co-referent with the vehicle.
-            if any(not documented(group) for group in groups):
+            if any(not documented_anywhere(group) for group in groups):
                 return True
             continue
         single = [group for group in groups if len(group) == 1]
-        if single and not any(documented(group) for group in single):
+        if single and not any(documented_anywhere(group) for group in single):
             return True
-        if any(not documented(group) for group in groups if len(group) > 1):
+        if any(not documented_together(group) for group in groups if len(group) > 1):
             return True
     return False
+
+
+@lru_cache(maxsize=4)
+def _corpus_section_lexemes(effective_on: date) -> tuple[tuple[str, ...], ...]:
+    """Every section's lexemes: what the knowledge base documents, regardless of ranking."""
+    return tuple(
+        tuple(tokenize(f"{chunk.heading} {chunk.content}"))
+        for chunk in load_corpus(effective_on=effective_on)
+    )
 
 
 async def _policy_plan(
@@ -593,7 +621,9 @@ async def _policy_plan(
         # Max-recall retrieval never abstains by itself; without a model the calibrated gate
         # (§7.4) is what decides whether a verbatim extract may answer at all.
         return await no_evidence("below_evidence_gate")
-    if not generate and _names_undocumented_concept(text, result.hits):
+    if not generate and _names_undocumented_concept(
+        text, context.clock.now().date()
+    ):
         # Without a model nothing adjudicates answerability (ADR-011), so the extract only
         # answers when every domain concept the question names is documented by the retrieved
         # sections. "¿Qué comisión cobran?" retrieves PAY-MET-002 with a high score, but the
@@ -1063,6 +1093,15 @@ def _template_text(plan: ResponsePlan, state: AgentState) -> str:
         "options_for_amount",
     }:
         return _requested_option_text(plan, state)
+    if template == "options_reask":
+        options = state.get("offered_options", [])
+        if not options:
+            return _options_text({})
+        listed = "; ".join(f"({index}) {_option_text(item)}" for index, item in enumerate(options, 1))
+        return (
+            "Dale. Para avanzar necesito que me digas cuál: "
+            f"{listed}. ¿Con cuál seguimos?"
+        )
     if template in {
         "options",
         "option_not_allowed",
@@ -1072,6 +1111,7 @@ def _template_text(plan: ResponsePlan, state: AgentState) -> str:
     }:
         # §8.3 Fase 1: a failed selection explains why and offers the valid options again.
         prefix = {
+            "options_reask": "Dale. Decime cuál: ",
             "option_not_allowed": "Esa opción ya no está habilitada. ",
             "option_not_found": "Esa opción no está disponible para esta cuenta. ",
             "draft_invalidated": "Los datos de tu cuenta cambiaron y la propuesta no se registró. ",
@@ -1983,8 +2023,9 @@ _NEXT_STEP_OFFERS = {
 
 
 def _offered_next_step(plan: ResponsePlan, state: AgentState) -> str:
-    if plan.template_id == "options":
-        # A numbered list invites "la 4"; an empty one says "Te puedo derivar".
+    if plan.template_id in {"options", "options_reask"}:
+        # A numbered list invites "la 4"; an empty one says "Te puedo derivar". The reask is
+        # the same invitation after "si" named none of them.
         return "choose" if state.get("offered_options") else "human"
     offer = _NEXT_STEP_OFFERS.get(plan.template_id or "", "")
     if offer in {"options", "options_later"} and state.get("handoff_motivo"):

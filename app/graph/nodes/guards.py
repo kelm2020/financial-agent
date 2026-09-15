@@ -154,6 +154,10 @@ def _reply_to_offer(reply: str, proposed: str, offered: str) -> RouteResult:
         return RouteResult(intent="rechaza_oferta")
     if offered == "human":
         return RouteResult(intent="pedido_humano", escalation_motivo="pedido_explicito")
+    # "si" after a numbered list names none of them: the list comes back asking to name one,
+    # never identical to the first time (three "si" in a row must not read the same reply).
+    if reply == "accept" and offered == "choose":
+        return RouteResult(intent="negociacion", options_reask=True)
     return RouteResult(intent="negociacion")
 
 
@@ -200,8 +204,14 @@ async def route_or_confirm(state: AgentState, runtime: Runtime[GraphContext]) ->
             return {"route_result": RouteResult(intent="negociacion", monthly_amount=amount)}
         if accepts_offer(text) and (proposed or offered == "choose"):
             if not proposed:
-                # "La opción que me ofreciste" after a list does not say which one: show it again.
-                return {"route_result": RouteResult(intent="negociacion")}
+                # "si" after a numbered list agrees with none of them in particular: the list
+                # comes back with a prompt to name one, never identical to the first time
+                # (the customer answered "si" three times and the reply never changed).
+                return {
+                    "route_result": RouteResult(
+                        intent="negociacion", options_reask=True
+                    )
+                }
             runtime.context.recorder.record_step("propose_agreement")
             return {"route_result": RouteResult(intent="aceptar_opcion", option_id=proposed)}
         chosen = _listed_option(state, text) if offered == "choose" else None

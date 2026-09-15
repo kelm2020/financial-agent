@@ -305,7 +305,11 @@ def monthly_amount(text: str) -> int | None:
     return amount if amount > 0 else None
 
 
-_CHOICE_LEAD = r"^(?:(?:elijo|tomo|quiero|prefiero|me quedo con|voy con|vamos con|dame)\s+)?"
+# "si/sí" opens the choice the numbered list invited ("si la 1", "sí, quiero la 2"): it is an
+# acknowledgment, not the confirmation of a plan (that is confirm_gate's allow-listed "si").
+_CHOICE_LEAD = (
+    r"^(?:(?:si|sí)\s+)?(?:(?:elijo|tomo|quiero|prefiero|me quedo con|voy con|vamos con|dame)\s+)?"
+)
 _LISTED_INDEX = re.compile(_CHOICE_LEAD + r"(?:la\s+)?(?:opcion\s+)?(?:numero\s+|nro\s+)?(\d)$")
 _LISTED_ORDINAL = re.compile(
     _CHOICE_LEAD + r"(?:la\s+)?(primera|segunda|tercera|cuarta|quinta|sexta)(?:\s+opcion)?$"

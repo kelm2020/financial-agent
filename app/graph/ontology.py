@@ -35,7 +35,8 @@ CONCEPTS: dict[str, str] = {
     r"\b(?:algún |algun )?movimient\w* (?:de dinero )?previ[oa]\b",
     "parcial": r"\bpago parcial\b|\bparcialmente\b|\b(?:un |mi )?monto parcial\b|"
     r"\b(?:un |una )?suma parcial\b|\b(?:dejar|dejando) (?:solo |un )?(?:un )?poco\b|"
-    r"\b(?:pag|abon|sald|cancel|entreg|tom|acept|recib|imput|anot)\w* (?:solo |nada mas que )?"
+    r"\b(?:pag|abon|sald|cancel|entreg|tom|acept|recib|imput|anot|amortiz)\w* "
+    r"(?:solo |nada mas que )?"
     r"(?:una |un )?(?:parte|pedazo|pedacito|porcion)\b|"
     r"\bentrega a cuenta\b|\b(?:ir )?pagando de a poco\b",
     "refinanciacion": r"\b(?:refinancia\w*|financia\w*|plan|convenio|acuerdo)\b",
@@ -58,6 +59,9 @@ CONCEPTS: dict[str, str] = {
     # currency is what the customer asks about ("queda en USD?").
     "moneda": r"\b(?:dolares?|euros?|divisa|usdt|usd|stablecoin\w*)\b|"
     r"\b(?:en )?(?:la |otra |una )?moneda (?:original|extranjera|de otro pais)\b",
+    # Getting money back. The base documents no reimbursement: the anticipo section answers
+    # the neighbour question ("se exige anticipo") and never this one.
+    "devolucion": r"\b(?:devoluc\w*|reembols\w*|devuelv\w*)\b",
     "vigencia": rf"\b{_VALIDITY}\b.*\b{_OFFER}|\b{_OFFER}.*\b{_VALIDITY}\b|"
     r"\btom\w* cuando (?:quiera|quie)\b",
     "financiero_legal": r"\b(?:impuest\w*|impositiv\w*|fiscal\w*|tribut\w*|ganancias|deduc\w*|"
@@ -177,6 +181,10 @@ KB_TERMS: dict[str, str] = {
     "anticipo": "anticipo",
     "acreditacion": "acreditación",
     "parcial": "pago parcial",
+    # Measured with the dense gate: "correr la fecha de débito" left FAQ-003 at 0.496 (below
+    # the 0.505 gate) and POL-NEG-007 above it with the generic "fecha de pago"; the section's
+    # own wording clears the gate (0.603) with FAQ-003 first (ADR-011).
+    "fecha": "cambiar la fecha de vencimiento",
 }
 
 # A customer word documented by a corpus word with the same meaning, not a different subject.
@@ -187,6 +195,9 @@ KB_TERMS: dict[str, str] = {
 TERM_EQUIVALENTS: dict[str, tuple[str, ...]] = {
     "usdt": ("criptomonedas",),
     "stablecoins": ("criptomonedas",),
+    "cripto": ("criptomonedas",),
+    "bitcoin": ("criptomonedas",),
+    "ethereum": ("criptomonedas",),
     "wallet": ("billeteras virtuales",),
     "euros": ("moneda extranjera",),
     "euro": ("moneda extranjera",),
