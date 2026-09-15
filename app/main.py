@@ -39,7 +39,7 @@ from app.runtime.conversation_coordinator import (
 )
 from app.runtime.rate_limit import SlidingWindowRateLimiter
 from app.security.scope import CustomerScope, session_from_token_claims
-from app.tools.client import CollectionsGateway
+from app.tools.client import CircuitBreaker, CollectionsGateway
 from config.settings import Settings, get_settings
 from mock_api.auth import TokenClaims, require_claims
 
@@ -125,6 +125,12 @@ def create_app(
     production resolves them from settings."""
     resolved = settings or get_settings()
     guards = guardrail_config()
+    # One circuit breaker per backend dependency for the whole process (audit P5): a
+    # per-turn breaker reset on every message and never opened across turns.
+    backend_breaker = CircuitBreaker(
+        threshold=resolved.circuit_breaker_threshold,
+        reset_seconds=resolved.circuit_breaker_reset_seconds,
+    )
     postgres_enabled = resolved.app_env == "production" if use_postgres is None else use_postgres
     api_key = resolved.openai_api_key.get_secret_value() if resolved.openai_api_key else ""
     owned_llm = (
@@ -242,7 +248,11 @@ def create_app(
             timeout=resolved.tool_timeout_seconds,
         )
         try:
-            yield CollectionsGateway(client=client, settings=resolved)
+            # One breaker per backend dependency for the whole process, injected from the app:
+            # consecutive turns see the same open circuit instead of a fresh one per message.
+            # Credentials and scope stay per request: only the client of this turn uses them.
+            # Process-local by design; sharing the state across replicas is future work.
+            yield CollectionsGateway(client=client, settings=resolved, breaker=backend_breaker)
         finally:
             await client.aclose()
 
