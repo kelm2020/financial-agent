@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from tests.agent_support import agent_runtime
+from tests.agent_support import BackendFault, agent_runtime
 
 
 async def test_active_agreement_is_reported_instead_of_new_plans() -> None:
@@ -47,3 +47,59 @@ async def test_active_agreement_is_reported_instead_of_new_plans() -> None:
         request for request in runtime.transport.requests if request[1] == "/payment-agreement"
     ]
     assert len(writes) == 1
+
+
+# ------------------------------------------------------- escalation blocks negotiation
+
+
+async def test_derivation_for_missing_evidence_kills_the_pending_draft() -> None:
+    # Camino A (audit): the high-risk question without evidence derives, and the frozen draft
+    # must not survive it. A later bare "sí" answers nothing.
+    async with agent_runtime(retriever=None) as runtime:
+        conversation = await runtime.service.create_conversation("CUST-00125")
+        for text in ("Quiero la opción de 3 cuotas", "¿Qué quita existe?", "sí"):
+            turn = await runtime.service.send_message(
+                conversation.conversation_id,
+                conversation.customer_id,
+                text,
+                context=runtime.context,
+            )
+        assert turn.state["handoff_motivo"] == "fuera_de_politica"
+        assert turn.state["pending_draft"] is None
+        assert runtime.recorder.agreement_writes == []
+        assert any(
+            event["type"] == "agreement_draft_cancelled" or not runtime.recorder.agreement_writes
+            for event in runtime.recorder.events
+        )
+
+
+async def test_failed_transfer_keeps_the_negotiation_blocked() -> None:
+    # Camino B (audit): the vulnerability escalates, the transfer POST fails with 500, and the
+    # block survives the failure: no new draft, no confirmation, no write on a later "sí".
+    faults = (BackendFault(method="POST", path_prefix="/transfer", mode="500"),)
+    async with agent_runtime(faults=faults) as runtime:
+        conversation = await runtime.service.create_conversation("CUST-00125")
+        vulnerable = await runtime.service.send_message(
+            conversation.conversation_id,
+            conversation.customer_id,
+            "Me quedé sin trabajo",
+            context=runtime.context,
+        )
+        assert "no pude completar la derivación" in vulnerable.text
+        assert vulnerable.state["handoff_motivo"] == "vulnerabilidad"
+        offered = await runtime.service.send_message(
+            conversation.conversation_id,
+            conversation.customer_id,
+            "Quiero la opción de 3 cuotas",
+            context=runtime.context,
+        )
+        assert "asesor" in offered.text
+        assert "confirmá" not in offered.text
+        confirmed = await runtime.service.send_message(
+            conversation.conversation_id,
+            conversation.customer_id,
+            "sí",
+            context=runtime.context,
+        )
+        assert runtime.recorder.agreement_writes == []
+        assert confirmed.state["handoff_motivo"] == "vulnerabilidad"

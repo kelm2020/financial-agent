@@ -16,6 +16,7 @@ from app.graph.confirmation import recheck_reason
 from app.graph.context import GraphContext
 from app.graph.effects import transfer_to_human
 from app.graph.ontology import (
+    CONCEPTS,
     TERM_EQUIVALENTS,
     concept_trigger_words,
     policy_risk,
@@ -527,15 +528,28 @@ async def _policy_plan(
             "policy_answer", outcome="abstained", reason=reason, risk=question_risk
         )
         template = "no_evidence"
+        invalidated: dict[str, object] = {}
         if question_risk == "high":
+            # A high-risk question without verifiable evidence is derived (§7.4 3.b), and the
+            # derivation blocks automatic negotiation for the rest of the conversation: the
+            # customer was told a person takes the case, so a pending offer must not survive a
+            # later bare "sí" (the same reset the escalate node applies).
             derived = await _derive(
                 state, runtime, "fuera_de_politica", "Consulta de política sin evidencia."
             )
+            invalidated = {
+                "handoff_motivo": "fuera_de_politica",
+                "pending_draft": None,
+                "confirmation_candidate": None,
+                "confirmation_event_id": "",
+                "confirmation_other_count": 0,
+            }
             template = "no_evidence_high_risk" if derived else "human_unavailable"
         return {
+            **invalidated,
             "response_plan": ResponsePlan(
                 kind="policy", template_id=template, risk=question_risk, followup=followup
-            )
+            ),
         }
 
     generate = context.llm is not None
@@ -631,8 +645,12 @@ async def _escalation_plan(
     crisis: bool = False,
 ) -> dict[str, object]:
     derived = await _derive(state, runtime, motivo, resumen)
+    # The handoff decision is the domain's, not the POST's: a failed transfer only changes what
+    # the customer is told (the ticket could not be created), never the fact that a person owns
+    # the case. Automatic negotiation stays blocked either way; a later turn may retry the
+    # transfer, it may not offer plans again.
     return {
-        **({"handoff_motivo": motivo} if derived else {}),
+        "handoff_motivo": motivo,
         "response_plan": ResponsePlan(
             kind="escalate",
             template_id="human" if derived else "human_unavailable",
@@ -1156,16 +1174,27 @@ def _verbatim_quotes(claims: Sequence[GroundedClaim], state: AgentState) -> Cand
 
 
 _EXTRACT_MAX_SENTENCES = 3
+# A multi-section extract answers each part of the question; one section's sentences must
+# not eat the whole budget and starve the other (S-61 d1: the partial-payment FAQ took all
+# three sentences and the discount section, the one actually asked about, never showed).
+_EXTRACT_MAX_SENTENCES_PER_SECTION = 2
 _EXTRACT_MAX_SECTIONS = 2
 
 
-def _group_documented(words: tuple[str, ...], lexemes: tuple[str, ...]) -> bool:
+def _group_documented(words: tuple[str, ...], lexemes: tuple[str, ...], family: str = "") -> bool:
     """Whether a section's lexemes carry every word of one subject group."""
     return all(
         any(lexeme.startswith(stem) for lexeme in lexemes)
         for word in words
         for stem in tokenize(word)
     )
+
+
+def _section_about_family(hit: SearchHit, family: str) -> bool:
+    """Whether the section's own heading names the family: "Quitas de interés por segmento"
+    documents the quita family a customer words as "condonan" (the heading is the corpus's
+    own name for the concept; the vocabulary bridge already equated both, ADR-011)."""
+    return bool(re.search(CONCEPTS[family], detection_skeleton(hit.chunk.heading)))
 
 
 def _extract_sections(text: str, plan: ResponsePlan, state: AgentState) -> list[SearchHit]:
@@ -1194,7 +1223,20 @@ def _extract_sections(text: str, plan: ResponsePlan, state: AgentState) -> list[
         "incumplimiento",
         "vigencia",
     )
-    if len(families) < 2:
+    if not families:
+        return [max(cited, key=lambda hit: hit.dense_score)]
+    if len(families) == 1:
+        # One family: the best cited section that documents it, not the global dense top hit
+        # (S-61 d1: "condonan" names quita; the partial-payment FAQ ranked first on "parte").
+        ((family, groups),) = families.items()
+        single = [group for group in groups if len(group) == 1]
+        wanted = [group for group in groups if len(group) > 1] or single
+        for hit in sorted(cited, key=lambda item: item.dense_score, reverse=True):
+            lexemes = tuple(tokenize(f"{hit.chunk.heading} {hit.chunk.content}"))
+            if _section_about_family(hit, family) or any(
+                _group_documented(words, lexemes) for words in wanted
+            ):
+                return [hit]
         return [max(cited, key=lambda hit: hit.dense_score)]
     lexemes_per_hit = tuple(
         (
@@ -1213,13 +1255,13 @@ def _extract_sections(text: str, plan: ResponsePlan, state: AgentState) -> list[
                 hit
                 for hit, lexemes in lexemes_per_hit
                 if any(_group_documented(words, lexemes) for words in wanted)
+                or _section_about_family(hit, family)
             ),
             None,
         )
         # A family whose subject no retrieved section documents contributes nothing: the dense
         # top hit answers the question it resembles, which is not the family asked about.
         if pick is not None and pick.chunk.section_id not in chosen:
-            chosen[pick.chunk.section_id] = pick
             chosen[pick.chunk.section_id] = pick
     if not chosen:
         return [max(cited, key=lambda hit: hit.dense_score)]
@@ -1253,7 +1295,9 @@ def _relevant_sentences(
         scored[0] = (max(scored[0][0], 1), 0)
     # Unrelated sentences are not filler; they only fill in when nothing matches the question.
     candidates = [item for item in scored if item[0]] or scored
-    ranked = sorted(candidates, key=lambda item: (-item[0], item[1]))[:_EXTRACT_MAX_SENTENCES]
+    ranked = sorted(candidates, key=lambda item: (-item[0], item[1]))[
+        :_EXTRACT_MAX_SENTENCES_PER_SECTION
+    ]
     return [visible[index] for _, index in sorted(ranked, key=lambda item: item[1])]
 
 
