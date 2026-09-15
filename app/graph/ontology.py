@@ -38,7 +38,10 @@ CONCEPTS: dict[str, str] = {
     r"\b(?:pag|abon|sald|cancel|entreg|tom|acept|recib|imput|anot|amortiz)\w* "
     r"(?:solo |nada mas que )?"
     r"(?:una |un )?(?:parte|pedazo|pedacito|porcion)\b|"
-    r"\bentrega a cuenta\b|\b(?:ir )?pagando de a poco\b",
+    r"\bentrega a cuenta\b|\b(?:ir )?pagando de a poco\b|"
+    # A smaller amount than the balance, not a smaller monthly installment (that negotiates).
+    r"\b(?:pag|abon|deposit)\w* (?:un |una )?(?:monto|importe|suma) (?:mas )?"
+    r"(?:chic[oa]|menor|reducid[oa]|baj[oa])\b(?! (?:por mes|mensual|de cuota|cada mes))",
     "refinanciacion": r"\b(?:refinancia\w*|financia\w*|plan|convenio|acuerdo)\b",
     "acreditacion": r"\b(?:acredit\w*|impact\w*|reflej\w*|figur\w*|actualiz\w*|tard\w*|demor\w*)\b|"
     # "Queda registrado el pago": registering only counts as accreditation next to the payment.
@@ -58,6 +61,7 @@ CONCEPTS: dict[str, str] = {
     # transfer in dollars is a documented vehicle with an undocumented currency, and only the
     # currency is what the customer asks about ("queda en USD?").
     "moneda": r"\b(?:dolares?|euros?|divisa|usdt|usd|stablecoin\w*)\b|"
+    r"\bpesos? (?:uruguay|chilen|mexican|colombian|dominican|filipin|cuban)\w*|"
     r"\b(?:en )?(?:la |otra |una )?moneda (?:original|extranjera|de otro pais)\b",
     # Getting money back. The base documents no reimbursement: the anticipo section answers
     # the neighbour question ("se exige anticipo") and never this one.

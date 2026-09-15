@@ -333,3 +333,23 @@ def test_verifier_rejects_a_sentence_echoing_the_question() -> None:
     assert verify_grounded_reply(reply, sources) == ()
     question = "¿cuánto cobra de comisión el asesor?"
     assert verify_grounded_reply(reply, sources, question=question) == ("unsupported_sentence",)
+
+
+def test_undocumented_subjects_are_decided_against_the_whole_corpus() -> None:
+    from datetime import date
+
+    from app.graph.nodes.respond import _names_undocumented_concept
+
+    today = date(2026, 9, 12)
+    # The base documents no reimbursement: the anticipo neighbour must not answer (H08).
+    assert _names_undocumented_concept(
+        "¿La entrega inicial tiene devolución si el banco rechaza mi financiación?", today
+    )
+    # Criptomonedas is named in PAY-MET-003 whether or not a query's ranking surfaced it.
+    assert not _names_undocumented_concept(
+        "¿puedo abonar usando alguna cripto, tipo bitcoin o ethereum?", today
+    )
+    assert not _names_undocumented_concept("¿puedo pagar con tarjeta?", today)
+    # A fee and a currency are subjects of their own that the base never documents.
+    assert _names_undocumented_concept("¿me cobran comisión por la transferencia?", today)
+    assert _names_undocumented_concept("¿puedo pagar con una transferencia en dólares?", today)

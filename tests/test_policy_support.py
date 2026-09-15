@@ -614,3 +614,79 @@ async def test_answer_check_never_drops_the_first_claim_as_a_repetition() -> Non
     answer = reply(claim(_NO_DATES, "FAQ-003"))
     result = await check_answer("¿Cambian fechas?", answer, ScriptedLLM([verdict(redundant=(0,))]))
     assert result == AnswerCheck("supported")
+
+
+# ------------------------------------------------------------------ declared partial answers
+
+
+async def test_low_risk_partial_answer_declares_the_gap_and_offers_a_person() -> None:
+    # Live chat: "¿puedo pagar por transferencia? ¿o tiene recargo?" read "No encontré esa
+    # información" although the base documents transfers; only the surcharge is undocumented.
+    llm = ScriptedLLM([reply(claim(_FAMILY, "FAQ-010"), unresolved=("recargo",)), verdict()])
+    retriever = StaticRetriever([corpus_chunk("FAQ-010")])
+    async with agent_runtime(llm=llm, retriever=retriever) as runtime:
+        result = await ask(runtime, "¿Puede pagar un familiar por mí? ¿Y tiene algún recargo?")
+    assert [call.task for call in llm.calls] == ["grounded_response", "policy_answer_check"]
+    assert result.text == f"{_FAMILY} [FAQ-010] {_STATIC_TEMPLATES['policy_partial_gap']}"
+    assert result.state["offered_next_step"] == "human"
+    assert "request_human" not in tools(runtime)
+    assert answers(runtime)[-1]["outcome"] == "model_answer"
+    assert answers(runtime)[-1]["unresolved"] == 1
+
+
+async def test_partial_answer_the_check_rejects_is_an_abstention() -> None:
+    llm = ScriptedLLM(
+        [reply(claim(_FAMILY, "FAQ-010"), unresolved=("horario",)), verdict(answers=False)]
+    )
+    retriever = StaticRetriever([corpus_chunk("FAQ-010")])
+    async with agent_runtime(llm=llm, retriever=retriever) as runtime:
+        result = await ask(runtime, "¿Puede pagar un familiar por mí? ¿En qué horario atienden?")
+    assert result.text == _STATIC_TEMPLATES["no_evidence"]
+    assert "[FAQ-010]" not in result.text
+
+
+async def test_a_named_undocumented_subject_is_never_answered_in_part() -> None:
+    # Live: "¿con dólares o alguna moneda extranjera?" read the enabled methods plus the gap,
+    # and the check approved it. The currency is the whole question, so code decides.
+    llm = ScriptedLLM([reply(claim(_FAMILY, "FAQ-010"), unresolved=("moneda",)), verdict()])
+    retriever = StaticRetriever([corpus_chunk("FAQ-010")])
+    async with agent_runtime(llm=llm, retriever=retriever) as runtime:
+        result = await ask(runtime, "¿Puede pagar un familiar por mí en dólares?")
+    assert [call.task for call in llm.calls] == ["grounded_response"]
+    assert result.text == _STATIC_TEMPLATES["no_evidence"]
+    assert answers(runtime)[-1]["reason"] == "unresolved_aspects"
+
+
+async def test_partial_answer_needs_the_check_to_approve_every_claim() -> None:
+    # Live H10: the check rejected the claims and the verbatim fallback still showed the card
+    # method plus the gap, although the foreign issuer was what the customer asked about.
+    llm = ScriptedLLM(
+        [
+            reply(claim(_FAMILY, "FAQ-010"), unresolved=("emisor",)),
+            verdict(supported=(), unsupported=(0,)),
+        ]
+    )
+    retriever = StaticRetriever([corpus_chunk("FAQ-010")])
+    async with agent_runtime(llm=llm, retriever=retriever) as runtime:
+        result = await ask(runtime, "¿Puede pagar un familiar por mí con una tarjeta del exterior?")
+    assert result.text == _STATIC_TEMPLATES["no_evidence"]
+    assert answers(runtime)[-1]["reason"] == "unresolved_aspects"
+
+
+async def test_partial_answer_quoting_a_negotiation_rule_is_an_abstention() -> None:
+    # Live: a transfer question with an undocumented surcharge read the financing surcharge of a
+    # plan plus the gap. Negotiation rules are never answered in part.
+    anticipo = (
+        "El anticipo se paga junto con la aceptación del plan y se descuenta del monto a financiar."
+    )
+    llm = ScriptedLLM(
+        [
+            reply(claim(_FAMILY, "FAQ-010"), claim(anticipo, "POL-NEG-005"), unresolved=("otro",)),
+            verdict(supported=(0, 1)),
+        ]
+    )
+    retriever = StaticRetriever([corpus_chunk("FAQ-010"), corpus_chunk("POL-NEG-005")])
+    async with agent_runtime(llm=llm, retriever=retriever) as runtime:
+        result = await ask(runtime, "¿Puede pagar un familiar por mí? ¿Qué más tengo que saber?")
+    assert result.text == _STATIC_TEMPLATES["no_evidence"]
+    assert "[POL-NEG-005]" not in result.text

@@ -898,11 +898,11 @@ async def test_offer_edges_fall_back_safely() -> None:
             "¿Qué opciones tengo?",
             context=runtime.context,
         )
-        # "sí" to "¿Alguna te sirve?" names no option: the list is shown again.
+        # "sí" to "¿Alguna te sirve?" names no option: the list comes back asking for one.
         again = await runtime.service.send_message(
             conversation.conversation_id, conversation.customer_id, "sí", context=runtime.context
         )
-        assert "puedo ofrecerte" in again.text
+        assert "me digas cuál" in again.text and "(1)" in again.text
     # A budget overrun while reading the reply is the controlled budget path, never swallowed.
     async with agent_runtime(llm=ScriptedLLM([TurnBudgetExceeded("llm", 3)])) as runtime:
         conversation = await runtime.service.create_conversation("CUST-00125")
@@ -1122,7 +1122,7 @@ async def test_challenge_acceptance_phrase_registers_the_pending_draft() -> None
 
         await say("¿Qué opciones tengo?")
         relisted = await say("Quiero aceptar la opción de pago que me ofreciste")
-        assert "puedo ofrecerte" in relisted.text  # after a list it does not say which one
+        assert "me digas cuál" in relisted.text  # after a list it does not say which one
         summary = await say("1")
         assert "un pago único de $178.000" in summary.text
         registered = await say("Quiero aceptar la opción de pago que me ofreciste.")
@@ -1226,12 +1226,16 @@ async def test_si_la_1_picks_the_first_option_of_the_list() -> None:
     async with agent_runtime() as runtime:
         conversation = await runtime.service.create_conversation("CUST-00125")
         listed = await runtime.service.send_message(
-            conversation.conversation_id, conversation.customer_id, "no puedo pagar todo",
+            conversation.conversation_id,
+            conversation.customer_id,
+            "no puedo pagar todo",
             context=runtime.context,
         )
         assert "(1)" in listed.text
         chosen = await runtime.service.send_message(
-            conversation.conversation_id, conversation.customer_id, "si la 1",
+            conversation.conversation_id,
+            conversation.customer_id,
+            "si la 1",
             context=runtime.context,
         )
         assert "confirmá" in chosen.text and "pago único" in chosen.text
@@ -1245,11 +1249,15 @@ async def test_bare_si_after_a_list_asks_which_one() -> None:
     async with agent_runtime() as runtime:
         conversation = await runtime.service.create_conversation("CUST-00125")
         await runtime.service.send_message(
-            conversation.conversation_id, conversation.customer_id, "no puedo pagar todo",
+            conversation.conversation_id,
+            conversation.customer_id,
+            "no puedo pagar todo",
             context=runtime.context,
         )
         reask = await runtime.service.send_message(
-            conversation.conversation_id, conversation.customer_id, "si",
+            conversation.conversation_id,
+            conversation.customer_id,
+            "si",
             context=runtime.context,
         )
         assert "me digas cuál" in reask.text.casefold()

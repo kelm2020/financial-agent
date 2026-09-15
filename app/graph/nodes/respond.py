@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import re
-from functools import lru_cache
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
+from functools import lru_cache
 from typing import Any, Literal
 
 from langchain_core.messages import AIMessage
@@ -20,6 +20,7 @@ from app.graph.ontology import (
     CONCEPTS,
     TERM_EQUIVALENTS,
     concept_trigger_words,
+    concepts,
     policy_risk,
     retrieval_query,
 )
@@ -488,9 +489,7 @@ def _names_undocumented_concept(text: str, effective_on: date) -> bool:
     (``TERM_EQUIVALENTS``) documents its customer word. The check retires itself the day the
     base documents the subject.
     """
-    triggers = concept_trigger_words(
-        text, "financiero_legal", "medios", "moneda", "devolucion"
-    )
+    triggers = concept_trigger_words(text, "financiero_legal", "medios", "moneda", "devolucion")
     if not triggers:
         return False
     sections = _corpus_section_lexemes(effective_on)
@@ -621,9 +620,7 @@ async def _policy_plan(
         # Max-recall retrieval never abstains by itself; without a model the calibrated gate
         # (§7.4) is what decides whether a verbatim extract may answer at all.
         return await no_evidence("below_evidence_gate")
-    if not generate and _names_undocumented_concept(
-        text, context.clock.now().date()
-    ):
+    if not generate and _names_undocumented_concept(text, context.clock.now().date()):
         # Without a model nothing adjudicates answerability (ADR-011), so the extract only
         # answers when every domain concept the question names is documented by the retrieved
         # sections. "¿Qué comisión cobran?" retrieves PAY-MET-002 with a high score, but the
@@ -998,6 +995,11 @@ _STATIC_TEMPLATES = {
         "Para armarte algo concreto necesito un dato: ¿cuánto podrías pagar este mes?"
     ),
     "no_evidence": "No encontré esa información en las políticas disponibles. Te puedo derivar.",
+    # Fixed on purpose: the unresolved aspects echo the customer and never reach the reply.
+    "policy_partial_gap": (
+        "No tengo información confirmada sobre el resto de tu consulta. "
+        "Si querés, te derivo con un asesor."
+    ),
     "no_evidence_high_risk": (
         "No tengo información confirmada sobre esa condición. Te derivo con un asesor "
         "para que la revise."
@@ -1094,13 +1096,17 @@ def _template_text(plan: ResponsePlan, state: AgentState) -> str:
     }:
         return _requested_option_text(plan, state)
     if template == "options_reask":
+        # "sí" to "¿Alguna te sirve?" names none: ask for one instead of repeating the list
+        # verbatim (a live chat answered "si" three times and read the same reply each time).
         options = state.get("offered_options", [])
         if not options:
             return _options_text({})
-        listed = "; ".join(f"({index}) {_option_text(item)}" for index, item in enumerate(options, 1))
+        listed = "; ".join(
+            f"({index}) {_option_text(item)}" for index, item in enumerate(options, 1)
+        )
         return (
-            "Dale. Para avanzar necesito que me digas cuál: "
-            f"{listed}. ¿Con cuál seguimos?"
+            f"Para avanzar necesito que me digas cuál: {listed}. La primera cuota vence el "
+            f"{_date(options[0].primer_vencimiento)}. Respondé con el número, por ejemplo «la 1»."
         )
     if template in {
         "options",
@@ -1111,7 +1117,6 @@ def _template_text(plan: ResponsePlan, state: AgentState) -> str:
     }:
         # §8.3 Fase 1: a failed selection explains why and offers the valid options again.
         prefix = {
-            "options_reask": "Dale. Decime cuál: ",
             "option_not_allowed": "Esa opción ya no está habilitada. ",
             "option_not_found": "Esa opción no está disponible para esta cuenta. ",
             "draft_invalidated": "Los datos de tu cuenta cambiaron y la propuesta no se registró. ",
@@ -1222,11 +1227,14 @@ _EXTRACT_MAX_SECTIONS = 2
 
 
 def _group_documented(words: tuple[str, ...], lexemes: tuple[str, ...], family: str = "") -> bool:
-    """Whether a section's lexemes carry every word of one subject group."""
+    """Whether a section's lexemes carry every word of one subject group, a declared
+    equivalent (``TERM_EQUIVALENTS``) standing for its customer word ("wallet" is documented by
+    "billeteras virtuales")."""
     return all(
         any(lexeme.startswith(stem) for lexeme in lexemes)
         for word in words
-        for stem in tokenize(word)
+        for synonym in TERM_EQUIVALENTS.get(word, (word,))
+        for stem in tokenize(synonym)
     )
 
 
@@ -1235,6 +1243,25 @@ def _section_about_family(hit: SearchHit, family: str) -> bool:
     documents the quita family a customer words as "condonan" (the heading is the corpus's
     own name for the concept; the vocabulary bridge already equated both, ADR-011)."""
     return bool(re.search(CONCEPTS[family], detection_skeleton(hit.chunk.heading)))
+
+
+_EXTRACT_FAMILIES = frozenset(
+    {
+        "quita",
+        "anticipo",
+        "parcial",
+        "refinanciacion",
+        "acreditacion",
+        "fecha",
+        "medios",
+        "incumplimiento",
+        "vigencia",
+    }
+)
+
+
+# Families whose pattern lists distinct members rather than synonyms of one concept.
+_ENUMERATIVE_FAMILIES = frozenset({"medios"})
 
 
 def _extract_sections(text: str, plan: ResponsePlan, state: AgentState) -> list[SearchHit]:
@@ -1251,54 +1278,55 @@ def _extract_sections(text: str, plan: ResponsePlan, state: AgentState) -> list[
     ]
     if not cited:
         return []
-    families = concept_trigger_words(
-        text,
-        "quita",
-        "anticipo",
-        "parcial",
-        "refinanciacion",
-        "acreditacion",
-        "fecha",
-        "medios",
-        "incumplimiento",
-        "vigencia",
-    )
-    if not families:
+    named = concepts(text) & _EXTRACT_FAMILIES
+    if len(named) > 1:
+        # "plan"/"acuerdo" is the context of a specific question ("pagar un monto más chico sin
+        # armar ningún plan"), not its subject: the umbrella family only answers on its own.
+        named -= {"refinanciacion"}
+    if not named:
         return [max(cited, key=lambda hit: hit.dense_score)]
-    if len(families) == 1:
-        # One family: the best cited section that documents it, not the global dense top hit
-        # (S-61 d1: "condonan" names quita; the partial-payment FAQ ranked first on "parte").
-        ((family, groups),) = families.items()
+    groups_by_family = concept_trigger_words(text, *named)
+    ranked = sorted(cited, key=lambda item: item.dense_score, reverse=True)
+    heading_lexemes = {hit.chunk.section_id: tuple(tokenize(hit.chunk.heading)) for hit in ranked}
+    section_lexemes = {
+        hit.chunk.section_id: tuple(tokenize(f"{hit.chunk.heading} {hit.chunk.content}"))
+        for hit in ranked
+    }
+
+    def carries_words(family: str, lexemes: dict[str, tuple[str, ...]]) -> SearchHit | None:
+        groups = groups_by_family.get(family, [])
         single = [group for group in groups if len(group) == 1]
         wanted = [group for group in groups if len(group) > 1] or single
-        for hit in sorted(cited, key=lambda item: item.dense_score, reverse=True):
-            lexemes = tuple(tokenize(f"{hit.chunk.heading} {hit.chunk.content}"))
-            if _section_about_family(hit, family) or any(
-                _group_documented(words, lexemes) for words in wanted
-            ):
-                return [hit]
-        return [max(cited, key=lambda hit: hit.dense_score)]
-    lexemes_per_hit = tuple(
-        (
-            hit,
-            tuple(tokenize(f"{hit.chunk.heading} {hit.chunk.content}")),
-        )
-        for hit in sorted(cited, key=lambda item: item.dense_score, reverse=True)
-    )
-    chosen: dict[str, SearchHit] = {}
-    for family in sorted(families):
-        groups = families[family]
-        single = [group for group in groups if len(group) == 1]
-        wanted = [group for group in groups if len(group) > 1] or single
-        pick = next(
+        return next(
             (
                 hit
-                for hit, lexemes in lexemes_per_hit
-                if any(_group_documented(words, lexemes) for words in wanted)
-                or _section_about_family(hit, family)
+                for hit in ranked
+                if any(_group_documented(words, lexemes[hit.chunk.section_id]) for words in wanted)
             ),
             None,
         )
+
+    def pick_for(family: str) -> SearchHit | None:
+        """A heading carrying the customer's words, then a heading naming the concept, then a
+        section merely carrying the words. A section *about* the concept outranks one that uses
+        its word in another sense: "¿me descuentan algo si pago todo?" is answered by "Quitas de
+        interés por segmento", not by the anticipo that "se descuenta del monto a financiar".
+        ``medios`` enumerates distinct instruments, so a heading naming one ("cuotas de mi
+        tarjeta") is not about another ("un cheque de un tercero") and that tier is skipped."""
+        about = (
+            None
+            if family in _ENUMERATIVE_FAMILIES
+            else next((hit for hit in ranked if _section_about_family(hit, family)), None)
+        )
+        return (
+            carries_words(family, heading_lexemes)
+            or about
+            or carries_words(family, section_lexemes)
+        )
+
+    chosen: dict[str, SearchHit] = {}
+    for family in sorted(named):
+        pick = pick_for(family)
         # A family whose subject no retrieved section documents contributes nothing: the dense
         # top hit answers the question it resembles, which is not the family asked about.
         if pick is not None and pick.chunk.section_id not in chosen:
@@ -1480,23 +1508,26 @@ GROUNDED_INSTRUCTION = (
     "\nRespondé sólo con oraciones respaldadas. Cada claim lleva una oración completa para el "
     "cliente (sentence), el section_id de su fuente y una cita textual (quote) copiada tal cual "
     "del material, de al menos cuatro palabras; el título de una sección sólo indica su tema y "
-    "nunca es una cita. La respuesta visible se arma sólo con esas "
-    "oraciones: no agregues introducciones ni cierres. Usá sólo las secciones que responden lo "
-    "que pregunta el cliente y no sumes información de otras. Antes de responder, decidí si el "
-    "material responde DIRECTAMENTE lo que la consulta pide: coincidencia de tema, una palabra en "
-    "común o una cita real no prueban que la responda. Una consulta corta se interpreta con el "
-    "último mensaje del asistente. Los aspectos materiales son sólo los que la consulta pide o "
-    "presupone (condición, medio, moneda, sujeto, plazo, excepción); no agregues aspectos que no "
-    "pide. Poné en unresolved_aspects cada aspecto pedido que el material no responda; en ese caso "
-    "devolvé text y claims vacíos, porque una respuesta parcial no es una respuesta. Si el "
+    "nunca es una cita. La respuesta visible se arma sólo con esas oraciones: no agregues "
+    "introducciones ni cierres. Usá sólo las secciones que responden lo que pregunta el cliente y "
+    "no sumes información de otras. Antes de responder, decidí si el material responde "
+    "DIRECTAMENTE lo que la consulta pide: coincidencia de tema, una palabra en común o una cita "
+    "real no prueban que la responda. Una consulta corta se interpreta con el último mensaje del "
+    "asistente. Los aspectos materiales son sólo los que la consulta pide o presupone (condición, "
+    "medio, moneda, sujeto, plazo, excepción); no agregues aspectos que no pide. Poné en "
+    "unresolved_aspects cada aspecto pedido que el material no responda. Si lo que falta es una "
+    "condición de lo que responderías (el medio, la moneda, el emisor, el sujeto, el plazo o una "
+    "excepción de ese mismo pago), devolvé text y claims vacíos: una respuesta sin su condición "
+    "confunde. Si la consulta hace además otra pregunta separada que el material no responde, "
+    "respondé con claims sólo la parte respaldada y dejá la otra en unresolved_aspects. Si el "
     "material responde lo pedido, unresolved_aspects queda vacío. Si la regla distingue casos "
     "(cuándo sí y cuándo no), incluí cada caso que la sección documenta. No uses conocimiento "
-    "externo ni "
-    "confundas conceptos vecinos: pagar todo de una vez con pagar una parte, recargo con tasa "
-    "anual o CFT, quita con beneficio fiscal, medio de pago con fecha de pago o con cesión de la "
-    "deuda. Vocabulario de la base: una quita es un descuento, rebaja o reducción de lo que se "
-    "debe; el pago único es pagar todo de una vez; el anticipo o entrega inicial es lo que se paga "
-    "al empezar un plan en cuotas; el pago parcial es pagar una parte sin acuerdo."
+    "externo ni confundas conceptos vecinos: pagar todo de una vez con pagar una parte, recargo "
+    "con tasa anual o CFT, el recargo por financiación de un plan en cuotas con un recargo o costo "
+    "por usar un medio de pago, quita con beneficio fiscal, medio de pago con fecha de pago o con "
+    "cesión de la deuda. Vocabulario de la base: una quita es un descuento, rebaja o reducción de "
+    "lo que se debe; el pago único es pagar todo de una vez; el anticipo o entrega inicial es lo "
+    "que se paga al empezar un plan en cuotas; el pago parcial es pagar una parte sin acuerdo."
 )
 
 
@@ -1572,13 +1603,14 @@ async def _generate(
     grounded = await llm.complete(
         task="grounded_response", messages=messages, response_model=GroundedReply
     )
-    if grounded.unresolved_aspects:
-        # The material leaves part of the question unanswered, and a partial answer about payment
-        # conditions is worse than none. Only the count is recorded: aspects echo the customer.
-        runtime.context.recorder.record_event(
-            "policy_model_unresolved", aspects=len(grounded.unresolved_aspects)
-        )
-        return Candidate(text="", unresolved=grounded.unresolved_aspects)
+    unresolved = grounded.unresolved_aspects
+    if unresolved:
+        # The material leaves part of the question unanswered. Only the count is recorded: aspects
+        # echo the customer. The claims, if any, are the documented part; whether a partial answer
+        # may be shown is decided by the question's risk (_materialize).
+        runtime.context.recorder.record_event("policy_model_unresolved", aspects=len(unresolved))
+        if not grounded.claims:
+            return Candidate(text="", unresolved=unresolved)
     if not grounded.claims:
         return Candidate(text=normalize_visible(grounded.text))
     grounded = grounded.model_copy(update={"claims": _claims_by_section_id(grounded.claims, state)})
@@ -1622,12 +1654,12 @@ async def _generate(
         )
     if not claims:
         # Nothing customer-facing about the answer was claimed: handled as an abstention.
-        return Candidate(text="")
+        return Candidate(text="", unresolved=unresolved)
     sentences = [claim.sentence for claim in claims]
     backed = {_sentence_key(sentence) for sentence in sentences}
     if any(_sentence_key(item) not in backed for item in split_sentences(grounded.text)):
         runtime.context.recorder.record_event("unclaimed_text_dropped")
-    return _claims_candidate(claims)
+    return replace(_claims_candidate(claims), unresolved=unresolved)
 
 
 def _claims_by_section_id(
@@ -1725,6 +1757,7 @@ async def _materialize(
         feedback: str | None = None
         # Claims of the last rejected draft: its quotes are what the model chose as the answer.
         chosen: tuple[GroundedClaim, ...] = ()
+        chosen_unresolved: tuple[str, ...] = ()
         for _attempt in range(2):  # the first answer plus exactly one regeneration
             try:
                 candidate = await _generate(plan, state, runtime, feedback)
@@ -1740,7 +1773,22 @@ async def _materialize(
             except Exception:
                 context.recorder.record_event("response_model_unavailable")
                 break
-            if plan.kind == "policy" and candidate.unresolved:
+            if (
+                plan.kind == "policy"
+                and candidate.unresolved
+                and (
+                    not candidate.claims
+                    or plan.risk == "high"
+                    or _names_undocumented_concept(
+                        state.get("last_user_text", ""), context.clock.now().date()
+                    )
+                )
+            ):
+                # Nothing documented, a negotiation or escalation answer missing a part, or a
+                # named subject the base never documents: a partial answer about those is worse
+                # than none. Live, "¿con dólares o moneda extranjera?" read the enabled methods
+                # plus the gap, while the currency was the whole question. A low-risk one with a
+                # separate unanswered question shows what the base documents (ADR-011 §9).
                 text, template = await _abstain(plan, state, runtime, "unresolved_aspects")
                 return text, flags, template
             if plan.kind == "policy" and not candidate.claims and not candidate.text.strip():
@@ -1767,6 +1815,7 @@ async def _materialize(
             flags.extend(rejected)
             feedback = ",".join(rejected)
             chosen = candidate.claims
+            chosen_unresolved = candidate.unresolved
         else:
             flags.append("output_validation_failed")
             # A failed model draft is not the end of the response path. The same plan always has
@@ -1787,7 +1836,13 @@ async def _materialize(
                 policy_content=True,
             ):
                 return await _checked_policy_answer(
-                    plan, state, runtime, quotes, flags, fallback_reason="validation_failed"
+                    plan,
+                    state,
+                    runtime,
+                    quotes,
+                    flags,
+                    fallback_reason="validation_failed",
+                    unresolved=chosen_unresolved,
                 )
         if plan.template_id == "policy_extract" and not _extract_allowed(plan, context):
             # Below the evidence gate, or in production, an unverified extract is not an answer.
@@ -1818,6 +1873,11 @@ async def _materialize(
     return await _second_failure(plan, state, runtime), flags, plan.template_id or ""
 
 
+def _cites_high_risk_section(claims: Sequence[GroundedClaim], state: AgentState) -> bool:
+    topics = {hit.chunk.section_id.upper(): hit.chunk.topic for hit in state.get("retrieved", [])}
+    return any(topics.get(claim.section_id.upper()) in _HIGH_RISK_TOPICS for claim in claims)
+
+
 async def _checked_policy_answer(
     plan: ResponsePlan,
     state: AgentState,
@@ -1826,6 +1886,7 @@ async def _checked_policy_answer(
     flags: list[GuardFlag],
     *,
     fallback_reason: str | None = None,
+    unresolved: tuple[str, ...] = (),
 ) -> tuple[str, list[GuardFlag], str]:
     """A validated model answer is shown only after the semantic check. It catches a paraphrase
     that changed its quote and, for a verbatim answer too, a section that does not answer the
@@ -1839,6 +1900,15 @@ async def _checked_policy_answer(
     context = runtime.context
     template = plan.template_id or ""
     assert context.llm is not None
+    # A low-risk answer to one part of the question: shown with the gap named and a person offered.
+    unresolved = unresolved or candidate.unresolved
+    partial = {"unresolved": len(unresolved)} if unresolved else {}
+
+    def declared(text: str) -> tuple[str, list[GuardFlag], str]:
+        if not unresolved:
+            return text, flags, template
+        return f"{text} {_STATIC_TEMPLATES['policy_partial_gap']}", flags, "policy_partial"
+
     outcome: str
     try:
         check = await check_answer(
@@ -1871,17 +1941,31 @@ async def _checked_policy_answer(
     except Exception:
         context.recorder.record_event("answer_check_unavailable")
         outcome = "check_unavailable"
+    if outcome == "supported" and unresolved and _cites_high_risk_section(candidate.claims, state):
+        # A partial answer quoting a negotiation or escalation rule is a payment condition answered
+        # in part. Live: "¿transferencia o tiene recargo?" read the financing surcharge table of
+        # POL-NEG-004 as if it were a surcharge for the payment method.
+        text, used = await _abstain(plan, state, runtime, "unresolved_aspects")
+        return text, flags, used
     if outcome == "supported":
         answer = (
             {"outcome": "model_answer"}
             if fallback_reason is None
             else {"outcome": "verbatim_quotes", "reason": fallback_reason}
         )
-        context.recorder.record_event("policy_answer", **answer, checked=True, risk=plan.risk)
-        return candidate.text, flags, template
+        context.recorder.record_event(
+            "policy_answer", **answer, **partial, checked=True, risk=plan.risk
+        )
+        return declared(candidate.text)
     unchecked = outcome in {"check_skipped_budget", "check_unavailable"}
     if outcome == "not_an_answer" or (unchecked and plan.risk == "high"):
         text, used = await _abstain(plan, state, runtime, outcome)
+        return text, flags, used
+    if unresolved:
+        # A partial answer is shown only when the check approved it whole. Live, H10 ("Visa
+        # emitida en Uruguay y en pesos uruguayos") had its claims rejected and the verbatim
+        # fallback still read "tarjeta del titular" plus the gap: the issuer was the question.
+        text, used = await _abstain(plan, state, runtime, "unresolved_aspects")
         return text, flags, used
     # Without the check nothing semantic dropped the claims about another situation: the lexical
     # fallback keeps the best-ranked cited section and the sections it refers to.
@@ -1900,9 +1984,9 @@ async def _checked_policy_answer(
         policy_content=True,
     ):
         context.recorder.record_event(
-            "policy_answer", outcome="verbatim_quotes", reason=outcome, risk=plan.risk
+            "policy_answer", outcome="verbatim_quotes", reason=outcome, **partial, risk=plan.risk
         )
-        return quotes.text, flags, template
+        return declared(quotes.text)
     text, used = await _abstain(plan, state, runtime, "no_verified_answer")
     return text, flags, used
 
@@ -2019,6 +2103,7 @@ _NEXT_STEP_OFFERS = {
     "debt_not_found": "human",
     "debt_unavailable": "human",
     "no_evidence": "human",
+    "policy_partial": "human",
 }
 
 

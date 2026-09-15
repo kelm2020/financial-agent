@@ -207,11 +207,7 @@ async def route_or_confirm(state: AgentState, runtime: Runtime[GraphContext]) ->
                 # "si" after a numbered list agrees with none of them in particular: the list
                 # comes back with a prompt to name one, never identical to the first time
                 # (the customer answered "si" three times and the reply never changed).
-                return {
-                    "route_result": RouteResult(
-                        intent="negociacion", options_reask=True
-                    )
-                }
+                return {"route_result": RouteResult(intent="negociacion", options_reask=True)}
             runtime.context.recorder.record_step("propose_agreement")
             return {"route_result": RouteResult(intent="aceptar_opcion", option_id=proposed)}
         chosen = _listed_option(state, text) if offered == "choose" else None
