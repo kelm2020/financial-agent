@@ -25,6 +25,61 @@ from evals.models import (
 
 _CITATION = re.compile(r"\[(?:POL-NEG|PAY-MET|ESC|FAQ)-\d{3}\]", re.IGNORECASE)
 _SECTION_LABEL = re.compile(r"\[((?:POL-NEG|PAY-MET|ESC|FAQ)-\d{3})\]", re.IGNORECASE)
+# A claim that the cited section's own restriction contradicts: the answer asserts the
+# absence of any condition while the section carries one. This is the only semantic residue
+# that IS decidable deterministically (a modal claim against a restricting adverb); anything
+# subtler belongs to the live judge, and the metric never claims more than it verifies.
+_UNCONDITIONAL = re.compile(
+    r"\bsin restricciones?\b|\bcuando quieras?\b|\ben cualquier momento\b|\bsin límites?\b|"
+    r"\bsin condiciones?\b|\bno requiere nada\b",
+    re.IGNORECASE,
+)
+_RESTRICTED = re.compile(
+    r"\bs[óo]lo\b|\bhasta\b|\bantes de\b|\bdespu[eé]s\b|\brequiere\b|\bno se\b|\bexcepto\b|"
+    r"\bm[áa]ximo\b|\bm[íi]nimo\b|\bhasta \d+",
+    re.IGNORECASE,
+)
+
+
+def answer_is_grounded(text: str, retrieved: Mapping[str, str]) -> bool:
+    """Deterministic grounding of one answer: a real citation that the cited section does not
+    lexically contradict.
+
+    Verifies three decidable layers: the citation exists, it names a section the case
+    actually retrieved (presence and validity), and no sentence claims the absence of a
+    condition while the cited section carries a restriction (support, restricted to the modal
+    contradiction a regex can decide). Full semantic support is the live judge's job; this
+    function never claims it.
+    """
+    labels = _SECTION_LABEL.findall(text)
+    if not labels:
+        return False
+    cited = {label.upper() for label in labels}
+    if not cited <= set(key.upper() for key in retrieved):
+        return False
+    if not _UNCONDITIONAL.search(text):
+        return True
+    return not any(_RESTRICTED.search(retrieved[key]) for key in retrieved if key.upper() in cited)
+
+
+def _retrieved_sections(state: dict[str, Any]) -> dict[str, str]:
+    """The case's retrieved knowledge as section_id -> content, from any turn's state."""
+    hits = state.get("retrieved") or []
+    sections: dict[str, str] = {}
+    for hit in hits:
+        if isinstance(hit, dict):
+            chunk = hit.get("chunk", {})
+            section = chunk.get("section_id", "")
+            content = chunk.get("content", "")
+        else:
+            chunk = getattr(hit, "chunk", None)
+            section = getattr(chunk, "section_id", "") if chunk is not None else ""
+            content = getattr(chunk, "content", "") if chunk is not None else ""
+        if section:
+            sections[section] = content
+    return sections
+
+
 # The independent figure oracle's own extraction (es-AR): money, percentages and dates.
 _MONEY = re.compile(r"\$\s?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)")
 _PERCENT = re.compile(r"(\d+(?:,\d+)?)\s?%")
@@ -304,7 +359,16 @@ def aggregate_metrics(
 
         if case.expect.requires_citation:
             grounded_den += 1
-            grounded_num += any(_CITATION.search(turn.text) for turn in observed.turns)
+            # Presence of a citation alone passed a mutation ("Podés cancelar el plan cuando
+            # quieras, sin restricciones. [FAQ-014]" counted as grounded while FAQ-014
+            # restricts cancellation to the same day, before accrual, through an operator).
+            # The metric now verifies what is decidable offline: the citation names a section
+            # the case retrieved and no sentence claims an unconditional right the cited
+            # section restricts. Semantic support stays with the live judge.
+            grounded_num += any(
+                answer_is_grounded(turn.text, _retrieved_sections(turn.state))
+                for turn in observed.turns
+            )
         responses += len(observed.turns)
         for turn in observed.turns:
             if "grounded_response" in turn.llm_tasks:

@@ -8,6 +8,7 @@ import pytest
 from pydantic import BaseModel
 
 from evals.dataset import load_cases
+from evals.evaluators import answer_is_grounded
 from evals.judge import JudgeSample, PendingLabelFile, load_pending_labels, pending_sample
 from evals.judge_workflow import write_pending_labels
 from scripts import generate_blind_phrasings as blind_script
@@ -217,3 +218,31 @@ async def test_promoted_blind_phrasings_are_replaced_in_place(
     _Writer.duplicates_only = True
     with pytest.raises(ValueError, match="no new phrasing"):
         await blind_script.run(blind_script.parse_args([*base, "--replace", "A-61:b2"]))
+
+
+def test_grounded_requires_citation_from_retrieved_and_no_lexical_contradiction() -> None:
+    # Audit P6 (mutation): "Podés cancelar el plan cuando quieras, sin restricciones.
+    # [FAQ-014]" used to count as grounded 1/1: the citation exists, but FAQ-014 says the
+    # cancellation only happens the same day, before the first accrual, through an operator.
+    # A citation present is not a claim supported.
+    retrieved = {"FAQ-014": _faq014()}
+    assert not answer_is_grounded(
+        "Podés cancelar el plan cuando quieras, sin restricciones. [FAQ-014]", retrieved
+    )
+    # The supported paraphrase of the same section counts.
+    assert answer_is_grounded(
+        "La cancelación la gestiona un operador, sólo el mismo día y antes de la primera "
+        "acreditación. [FAQ-014]",
+        retrieved,
+    )
+    # A citation of a section that was not retrieved is not grounded.
+    assert not answer_is_grounded("Podés pagar en 3 cuotas sin recargo. [POL-NEG-004]", retrieved)
+    # No citation at all is not grounded.
+    assert not answer_is_grounded("Podés cancelar el plan.", retrieved)
+
+
+def _faq014() -> str:
+    return (
+        "Sólo el mismo día y antes de la primera acreditación, y lo gestiona un operador. "
+        "No se cancela después."
+    )
