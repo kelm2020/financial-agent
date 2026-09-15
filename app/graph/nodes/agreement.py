@@ -9,6 +9,7 @@ from langgraph.runtime import Runtime
 from app.graph.context import GraphContext
 from app.graph.effects import audit_effect, transfer_to_human
 from app.graph.nodes.hydrate import BusinessRead, read_business_data
+from app.graph.routing import requested_payment_method
 from app.graph.state import AgentState, ConfirmationVerdict, ResponsePlan
 from app.guards.config import guardrail_config
 from app.policy.engine import (
@@ -86,11 +87,13 @@ async def _new_draft(
     runtime: Runtime[GraphContext],
     offer: FreshOffer,
     option: PaymentOption,
+    *,
+    requested_method: MedioPago | None = None,
 ) -> AgreementDraft | None:
     """Freeze a draft only for an option the policy engine accepts right now."""
     assert offer.read.customer is not None and offer.read.debt is not None
     now = runtime.context.clock.now()
-    method = _default_payment_method(option)
+    method = requested_method or _default_payment_method(option)
     # §8.3: the confirmation window is short (minutes) and never outlives the offer (48 h).
     window = timedelta(minutes=guardrail_config().confirmation_window_minutes)
     expires_at = min(vencimiento_oferta(option, now), now + window)
@@ -175,7 +178,9 @@ async def build_draft(state: AgentState, runtime: Runtime[GraphContext]) -> dict
                 "response_plan": ResponsePlan(kind="error", template_id="option_not_found"),
             }
         return _offer_again(offer, template_id="options")
-    draft = await _new_draft(state, runtime, offer, requested)
+    method = requested_payment_method(state.get("last_user_text", ""))
+    admitted = method if method is not None and medio_pago_permitido(requested, method) else None
+    draft = await _new_draft(state, runtime, offer, requested, requested_method=admitted)
     if draft is None:
         return _offer_again(offer, template_id="option_not_allowed")
     runtime.context.recorder.record_event("agreement_draft_created", draft_id=draft.draft_id)
@@ -183,6 +188,65 @@ async def build_draft(state: AgentState, runtime: Runtime[GraphContext]) -> dict
         **offer.read.updates,
         "offered_options": offer.allowed,
         "pending_draft": draft,
+        "confirmation_other_count": 0,
+        "response_plan": ResponsePlan(
+            kind="confirmation",
+            template_id="confirmation_question",
+            # A method the option does not admit is said, next to the method the draft uses.
+            facts=_unavailable_method(requested, method) if method and not admitted else {},
+        ),
+    }
+
+
+def _unavailable_method(option: PaymentOption, method: MedioPago) -> dict[str, object]:
+    return {
+        "method_unavailable": method,
+        "methods_allowed": [item for item in PAYMENT_METHODS if medio_pago_permitido(option, item)],
+    }
+
+
+async def _change_payment_method(
+    state: AgentState, runtime: Runtime[GraphContext], draft: AgreementDraft, method: MedioPago
+) -> dict[str, object]:
+    """The customer asks to pay another way while reading the summary.
+
+    The same option is frozen again with that method and confirmed again: a "sí" in the same
+    message answered a summary that named another method, so it confirms nothing (INV-4). A method
+    the option does not admit keeps the draft and names the ones it does.
+    """
+    offer = await _fresh_offer(state, runtime)
+    if offer is None:
+        return {"response_plan": ResponsePlan(kind="error", template_id="data_unavailable")}
+    option = next((item for item in offer.allowed if item.opcion_id == draft.opcion_id), None)
+    if option is None or not _same_terms(draft, option):
+        runtime.context.recorder.record_event(
+            "agreement_draft_invalidated", draft_id=draft.draft_id
+        )
+        return _offer_again(offer, template_id="draft_invalidated")
+    changed = (
+        await _new_draft(state, runtime, offer, option, requested_method=method)
+        if medio_pago_permitido(option, method)
+        else None
+    )
+    if changed is None:
+        return {
+            **offer.read.updates,
+            "response_plan": ResponsePlan(
+                kind="confirmation",
+                template_id="confirmation_question",
+                facts=_unavailable_method(option, method),
+            ),
+        }
+    runtime.context.recorder.record_event(
+        "agreement_payment_method_changed",
+        draft_id=changed.draft_id,
+        replaced_draft_id=draft.draft_id,
+        medio_pago=method,
+    )
+    return {
+        **offer.read.updates,
+        "offered_options": offer.allowed,
+        "pending_draft": changed,
         "confirmation_other_count": 0,
         "response_plan": ResponsePlan(kind="confirmation", template_id="confirmation_question"),
     }
@@ -201,6 +265,15 @@ async def confirm_gate(state: AgentState, runtime: Runtime[GraphContext]) -> dic
     candidate = state.get("confirmation_candidate") or ConfirmationVerdict(verdict="other")
     if state.get("guard_verdict") == "restrict" and candidate.verdict == "yes":
         candidate = ConfirmationVerdict(verdict="other")
+
+    method = requested_payment_method(state.get("last_user_text", ""))
+    if (
+        method is not None
+        and method != draft.medio_pago
+        and state.get("guard_verdict") != "restrict"
+    ):
+        # Before the verdict: "sí, por transferencia" never executes a summary that said débito.
+        return await _change_payment_method(state, runtime, draft, method)
 
     if candidate.verdict == "no":
         runtime.context.recorder.record_event("agreement_draft_cancelled", draft_id=draft.draft_id)

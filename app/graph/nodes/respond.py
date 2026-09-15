@@ -630,8 +630,20 @@ def _terms_text(terms: AgreementDraft) -> str:
     )
 
 
-def _confirmation_text(draft: AgreementDraft, *, refreshed: bool = False) -> str:
+def _confirmation_text(
+    draft: AgreementDraft,
+    *,
+    refreshed: bool = False,
+    unavailable: str = "",
+    allowed: Sequence[str] = (),
+) -> str:
     prefix = "La propuesta anterior venció; estos son los términos vigentes. " if refreshed else ""
+    if unavailable:
+        methods = _joined([_METHOD_LABELS[item] for item in allowed])
+        prefix += (
+            f"El pago con {_METHOD_LABELS[unavailable]} no está habilitado para esta opción; "
+            f"podés pagar por {methods}. "
+        )
     due = "con vencimiento el" if draft.cuotas == 1 else "primera el"
     return (
         f"{prefix}Antes de registrarlo, confirmá: {_terms_text(draft)}, {due} "
@@ -878,7 +890,12 @@ def _template_text(plan: ResponsePlan, state: AgentState) -> str:
     if template == "confirmation_question":
         draft = state.get("pending_draft")
         if isinstance(draft, AgreementDraft):
-            return _confirmation_text(draft, refreshed=bool(plan.facts.get("refreshed")))
+            return _confirmation_text(
+                draft,
+                refreshed=bool(plan.facts.get("refreshed")),
+                unavailable=str(plan.facts.get("method_unavailable", "")),
+                allowed=list(plan.facts.get("methods_allowed", [])),
+            )
         return _STATIC_TEMPLATES["draft_invalid"]
     if template == "zero_debt":
         return _zero_debt_text(state)

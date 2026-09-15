@@ -7,6 +7,7 @@ from app.graph.ontology import concepts, mixed_request, policy_request
 from app.graph.state import RouteResult
 from app.guards.normalize import detection_skeleton
 from app.guards.numbers_es import numbers_in_words
+from app.tools.schemas import MedioPago
 
 _OPTION = re.compile(r"\bOPT-[A-Z0-9]{2,10}\b", re.IGNORECASE)
 _INSTALLMENTS = re.compile(r"\b(\d{1,2})\s+cuotas?\b", re.IGNORECASE)
@@ -509,3 +510,41 @@ def route_turn(text: str) -> RouteResult:
     if re.search(r"\b(?:hola|buen dia|buenas|chau|gracias)\b", normalized):
         return RouteResult(intent="saludo_despedida")
     return RouteResult(intent="ambiguo")
+
+
+# How the customer asks to pay, in a statement: "prefiero pagar por transferencia", "sí, por
+# transferencia", "la de 3 cuotas con débito". A question ("¿y si pago con tarjeta?") is answered
+# from the knowledge base instead, a method under a negation ("no quiero pagar con débito") is not
+# asked for, and "cambia con tarjeta" without a request verb only mentions one.
+_METHOD_WORDS: dict[str, MedioPago] = {
+    "debito": "debito_automatico",
+    "transferencia": "transferencia",
+    "tarjeta": "tarjeta",
+    "cupon": "cupon",
+    "efectivo": "cupon",
+}
+_METHOD_NAME = r"(debito|transferencia|tarjeta|cupon|efectivo)"
+_METHOD_MENTION = re.compile(
+    rf"(?:\b(?:pagar|pago|pagarlo|abonar|abono)\s+)?\b(?:por|con|mediante|en|via)\s+"
+    rf"(?:el\s+|la\s+)?{_METHOD_NAME}\b|\b(?:prefiero|mejor)\s+(?:el\s+|la\s+)?{_METHOD_NAME}\b"
+)
+_METHOD_REQUEST_CUE = re.compile(
+    r"^(?:si|no|por|con|mejor|prefiero)\b"
+    r"|\b(?:quiero|prefiero|mejor|pago|pagar|pagarlo|pagaria|abono|abonar|elijo|tomo|dale|"
+    r"cambialo|pasalo|hacelo)\b"
+)
+
+
+def requested_payment_method(text: str) -> MedioPago | None:
+    """The one payment method a statement asks for, or None."""
+    if "?" in text:
+        return None
+    words = _word_sequence(text)
+    if not _METHOD_REQUEST_CUE.search(words):
+        return None
+    requested = {
+        _METHOD_WORDS[match.group(1) or match.group(2)]
+        for match in _METHOD_MENTION.finditer(words)
+        if "no" not in words[: match.start()].split()[-2:]
+    }
+    return next(iter(requested)) if len(requested) == 1 else None
