@@ -59,3 +59,26 @@ cases:
   - {id: "N-63:b2", query: "Si paso la plata por transferencia, ¿hay algún cargo extra?", source: rag, answerable: false, sections: [], required: "Abstenerse: no hay comisiones documentadas."}
   - {id: "N-64:b1", query: "¿Se podrá hacer el pago con dólares o alguna moneda extranjera?", source: rag, answerable: false, sections: [], required: "Abstenerse: no se documenta pago en moneda extranjera."}
   - {id: "N-64:b2", query: "¿Aceptan que abone la deuda en otra moneda que no sea pesos?", source: rag, answerable: false, sections: [], required: "Abstenerse: no se documenta pago en moneda extranjera."}
+  # Promovidas desde evals/policy_blind.yaml (gpt-4.1-mini, 2026-09-15, segunda promoción). Seis
+  # frases mal ruteadas motivaron familias en app/graph/ontology.py (precio bajo como quita,
+  # guita al principio y primer pago como anticipo, monto parcial, cortar el beneficio,
+  # pasar el pago para después, tomar la oferta cuando quiera) y la apertura con "quería saber
+  # si" en app/graph/routing.py: esas frases dejaron de ser ciegas (§11.3) y se reemplazaron.
+  - {id: "S-61:c1", query: "Si decido saldar la deuda de una sola vez, ¿me aplican algún precio más bajo?", source: rag, answerable: true, sections: [POL-NEG-003], required: "Reducción sólo de intereses y sólo en un pago único, según el segmento."}
+  - {id: "S-62:c1", query: "Para empezar a pagar en cuotas, tengo que poner algo de guita al principio?", source: rag, answerable: true, sections: [POL-NEG-005], required: "Entrega inicial desde cierta cantidad de cuotas y porcentaje según la mora."}
+  - {id: "S-63:c1", query: "Si abono solo un monto parcial, ¿me lo toman igual o necesito hacer algún acuerdo formal?", source: rag, answerable: true, sections: [FAQ-001, POL-NEG-006], required: "Pago parcial desde un mínimo del saldo; no reemplaza un acuerdo."}
+  - {id: "S-64:c1", query: "Quería saber si puedo pasar el pago de la cuota para después sin que me compliquen.", source: rag, answerable: true, sections: [FAQ-003], required: "El canal automático no cambia fechas; lo evalúa un operador con anticipación."}
+  - {id: "S-67:c1", query: "En caso que no pueda pagar una cuota del plan que armé, me cortan el beneficio o sigue vigente igual?", source: rag, answerable: true, sections: [POL-NEG-008, FAQ-004], required: "Caída del plan por una cuota impaga y sus consecuencias."}
+  - {id: "S-68:c1", query: "Esa oferta que me mandaron, tiene fecha de vencimiento o la puedo tomar cuando quiera?", source: rag, answerable: true, sections: [POL-NEG-007, FAQ-012], required: "Vigencia general de las ofertas, sin inventar una fecha particular."}
+  # Promovidas desde evals/policy_blind.yaml (gpt-5-mini, 2026-09-15, tercera promoción). Las
+  # frases de esa generación que motivaron cambios de léxico/ontología dejaron de ser ciegas
+  # (§11.3): el router ganó "seña" y "movimiento previo" como anticipo, "reagendar", las
+  # aperturas "quisiera saber si" y las divisas/monedas como sujetos propios. Lo que sigue
+  # fallando en el ciego regenerado es la medición honesta del modo sin modelo.
+  - {id: "S-61:d1", query: "Si pago todo junto hoy, ¿me condonan parte de los recargos por mora o me cobran hasta el último peso?", source: rag, answerable: true, sections: [POL-NEG-003], required: "Reducción sólo de intereses y sólo en un pago único, según el segmento."}
+  - {id: "S-62:d1", query: "Che, si lo pago en cuotas, hay que dejar alguna seña para reservar el plan o arranco sin dar nada?", source: rag, answerable: true, sections: [POL-NEG-005], required: "Entrega inicial desde cierta cantidad de cuotas y porcentaje según la mora."}
+  - {id: "S-64:d1", query: "Che, ¿me pueden correr la fecha de débito de la cuota al 20? El 5 me deja sin nada.", source: rag, answerable: true, sections: [FAQ-003], required: "El canal automático no cambia fechas; lo evalúa un operador con anticipación."}
+  - {id: "S-65:d1", query: "Hola, una duda rapidita: si pago desde la app del banco o por PagoMisCuentas, cuanto tarda en verse como pago? tengo que saber si llego al vencimiento.", source: rag, answerable: true, sections: [PAY-MET-002], required: "Plazos de acreditación por medio de pago."}
+  - {id: "S-66:d1", query: "¿Puedo cubrir la deuda con un cheque a nombre de otra persona? ¿Necesitan endoso o algún trámite adicional?", source: rag, answerable: true, sections: [PAY-MET-003], required: "Medios no habilitados."}
+  - {id: "S-67:d1", query: "Hice un acuerdo en cuotas y por un mes no llego a pagar: ¿me dejan seguir pagando el resto o me reclaman todo de una y me cortan beneficios?", source: rag, answerable: true, sections: [POL-NEG-008, FAQ-004], required: "Caída del plan por una cuota impaga y sus consecuencias."}
+  - {id: "S-68:d1", query: "Che, la promo que me ofrecieron para saldar parte de la deuda, ¿cuándo caduca?", source: rag, answerable: true, sections: [POL-NEG-007, FAQ-012], required: "Vigencia general de las ofertas, sin inventar una fecha particular."}

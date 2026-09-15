@@ -129,13 +129,14 @@ async def test_offline_run_scores_sections_and_reports_failed_retrieval_as_unava
     }
     report = await pipeline.run(_args(tmp_path, [_TRANSFER, _RATE, uncached]))
     rows = {row["id"]: row for row in report["cases"]}
-    # The calibrated extract answers from FAQ-010 (a relative paying), not PAY-MET-002.
-    assert rows["R-04"]["answerable"] and not rows["R-04"]["passed"]
+    # The vocabulary bridge ("acreditación" for "tarda") promotes PAY-MET-002 over the
+    # relative-paying FAQ, so the offline extract answers from the labelled section.
+    assert rows["R-04"]["answerable"] and rows["R-04"]["passed"]
     assert rows["N-01"]["passed"] and not rows["N-01"]["semantic_checked"]
     assert rows["X-01"] | {"available": False, "error": "retriever_unavailable"} == rows["X-01"]
     assert report["metrics"]["unavailable"] == 1 and report["mode"] == "offline"
     saved = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
-    assert (saved["passed"], saved["total"]) == (1, 3)
+    assert (saved["passed"], saved["total"]) == (2, 3)
 
 
 async def test_live_run_judges_answers_and_never_counts_a_failure_as_a_verdict(
