@@ -40,7 +40,7 @@ async def _fresh_offer(state: AgentState, runtime: Runtime[GraphContext]) -> Fre
     """Re-read customer, debt and options (never the turn cache) and apply the policy (§8.3)."""
     now = runtime.context.clock.now()
     read = await read_business_data(
-        runtime.context, customer=True, debt=True, options=True, now=now
+        runtime.context, customer=True, debt=True, options=True, now=now, state=state
     )
     if not read.complete:
         return None
@@ -266,6 +266,19 @@ async def confirm_gate(state: AgentState, runtime: Runtime[GraphContext]) -> dic
     if state.get("guard_verdict") == "restrict" and candidate.verdict == "yes":
         candidate = ConfirmationVerdict(verdict="other")
 
+    if candidate.verdict == "no":
+        # Precedence (§8.3): the negative lexicon always wins. "No quiero ese acuerdo,
+        # prefiero pagar por transferencia" rejects the agreement outright; a payment-method
+        # request in the same message never becomes a new draft to confirm. Only a customer
+        # who did not reject ("sí, por transferencia", a question about a method) can change
+        # the method of a live draft.
+        runtime.context.recorder.record_event("agreement_draft_cancelled", draft_id=draft.draft_id)
+        return {
+            "pending_draft": None,
+            "confirmation_other_count": 0,
+            "response_plan": ResponsePlan(kind="direct", template_id="draft_cancelled"),
+        }
+
     method = requested_payment_method(state.get("last_user_text", ""))
     if (
         method is not None
@@ -273,15 +286,8 @@ async def confirm_gate(state: AgentState, runtime: Runtime[GraphContext]) -> dic
         and state.get("guard_verdict") != "restrict"
     ):
         # Before the verdict: "sí, por transferencia" never executes a summary that said débito.
+        # The change re-freezes the draft and asks again; the confirmation is never inherited.
         return await _change_payment_method(state, runtime, draft, method)
-
-    if candidate.verdict == "no":
-        runtime.context.recorder.record_event("agreement_draft_cancelled", draft_id=draft.draft_id)
-        return {
-            "pending_draft": None,
-            "confirmation_other_count": 0,
-            "response_plan": ResponsePlan(kind="direct", template_id="draft_cancelled"),
-        }
 
     if candidate.verdict == "other":
         count = state.get("confirmation_other_count", 0) + 1

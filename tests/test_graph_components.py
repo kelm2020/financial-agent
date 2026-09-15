@@ -691,3 +691,34 @@ def test_in_memory_store_accepts_explicit_identifier() -> None:
     store = InMemoryConversationStore()
     record = asyncio.run(store.create("CUST-00125", conversation_id="known", channel="chat"))
     assert record.thread_id == "conversation:known"
+
+
+async def test_stale_debt_is_not_reported_after_a_failed_refresh() -> None:
+    # Audit P3: a successful read, sixteen minutes later a refresh that fails with 500.
+    # The old balance must not come back as "al día de hoy": the record left the cache.
+    async with agent_runtime() as runtime:
+        conversation = await runtime.service.create_conversation("CUST-00125")
+        fresh = await runtime.service.send_message(
+            conversation.conversation_id,
+            conversation.customer_id,
+            "¿cuánto debo?",
+            context=runtime.context,
+        )
+        assert fresh.state["debt_status"] == "ok" and "184.500" in fresh.text
+        clock = runtime.context.clock
+        assert isinstance(clock, FixedClock)
+        clock._value = clock.now() + timedelta(minutes=16)  # test-only clock advance
+        runtime.transport._faults = (BackendFault(method="GET", path_prefix="/debt", mode="500"),)
+        stale = await runtime.service.send_message(
+            conversation.conversation_id,
+            conversation.customer_id,
+            "¿cuánto debo?",
+            context=runtime.context,
+        )
+        assert stale.state["debt_status"] == "unavailable"
+        assert stale.state["debt"] is None
+        assert stale.state["debt_fingerprint"] == ""
+        assert stale.state["options_snapshot"] is None
+        # The honest reply names the problem; the 16-minute-old figure is not today's.
+        assert "184.500" not in stale.text
+        assert "problema para acceder" in stale.text

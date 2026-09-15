@@ -53,6 +53,7 @@ async def read_business_data(
     options: bool,
     now: datetime,
     cached_customer: Customer | None = None,
+    state: AgentState | None = None,
 ) -> BusinessRead:
     """Read the requested resources from the backend and return the state updates."""
     read = BusinessRead(customer=cached_customer)
@@ -85,6 +86,22 @@ async def read_business_data(
         else:
             read.debt_status = "not_found" if debt_result.status == "not_found" else "unavailable"
             read.updates["debt_status"] = read.debt_status
+            if read.debt_status == "unavailable" and (
+                state is None or state.get("debt") is not None
+            ):
+                # A record whose refresh just failed is stale, not current: it must not come
+                # back as "al día de hoy" nor feed decisions that need fresh data (§5.1
+                # as_of). The dependent options are invalidated with it, the same way a
+                # fingerprint change does (INV-13).
+                read.updates.update(
+                    {
+                        "debt": None,
+                        "debt_fingerprint": "",
+                        "debt_fetched_at": None,
+                        "options_snapshot": None,
+                        "offered_options": [],
+                    }
+                )
     if options and read.fingerprint:
         context.recorder.record_tool("get_payment_options", incluir_detalle=True)
         options_result = await context.gateway.get_payment_options(context.scope)
@@ -133,6 +150,7 @@ async def hydrate(state: AgentState, runtime: Runtime[GraphContext]) -> dict[str
         debt=needs_debt and not debt_is_fresh,
         options=needs_options and not snapshot_is_fresh,
         now=now,
+        state=state,
     )
     updates = dict(read.updates)
     if not needs_options:
