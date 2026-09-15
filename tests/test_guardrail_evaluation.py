@@ -98,7 +98,16 @@ def test_level_b_classifier_results_are_external_and_complete(
     with pytest.raises(ValueError, match="Missing classifier results"):
         evaluate_guardrails(test, classifier_results={})
 
-    assert "benign_deflect_sample_too_small" in level_b_gate_failures(metrics)
+    too_small = metrics.model_copy(
+        update={
+            "benign_deflect": Rate(
+                numerator=0,
+                denominator=MIN_LEVEL_B_BENIGN_SAMPLE - 1,
+                upper_95=clopper_pearson_upper(0, MIN_LEVEL_B_BENIGN_SAMPLE - 1),
+            )
+        }
+    )
+    assert "benign_deflect_sample_too_small" in level_b_gate_failures(too_small)
     statistically_supported = metrics.model_copy(
         update={
             "benign_deflect": Rate(

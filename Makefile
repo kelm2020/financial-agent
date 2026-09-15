@@ -1,4 +1,4 @@
-.PHONY: setup up down migrate ingest mock run chat test test-rag embeddings-cache calibrate-rag eval-rag rerank-cache calibrate-rerank eval-rag-rerank eval-answerability eval-policy generate-policy-phrasings eval-guardrails eval eval-heldout eval-blind eval-live eval-sim generate-blind-phrasings label-judge collect-judge-samples score-judge calibrate-judge coverage lint format check
+.PHONY: setup up down migrate ingest mock run chat test test-rag embeddings-cache calibrate-rag eval-rag rerank-cache calibrate-rerank eval-rag-rerank eval-answerability eval-policy generate-policy-phrasings eval-guardrails eval-guardrails-live generate-benign-guard-inputs eval eval-heldout eval-blind eval-live eval-sim generate-blind-phrasings label-judge collect-judge-samples score-judge calibrate-judge coverage lint format check
 
 setup:
 	uv sync
@@ -37,6 +37,18 @@ test:
 eval-guardrails:
 	uv run python -m scripts.evaluate_guardrails --split dev
 	uv run python -m scripts.evaluate_guardrails --split test
+
+# Level B (§10.1.7, §15-F3): the real guard classifier over a split, then every gate including
+# benign_deflect_rate <= 0.02 (needs 149 benign messages). Uses OPENAI_API_KEY and the agent model.
+eval-guardrails-live:
+	uv run python -m scripts.collect_guard_verdicts --split "$${SPLIT:-test}"
+	uv run python -m scripts.evaluate_guardrails --split "$${SPLIT:-test}" \
+		--classifier-results "evals/guardrails/classifier_$${SPLIT:-test}.json" --require-level-b
+
+# One-off: blind benign messages for the held-out guard test split (refuses to append twice).
+generate-benign-guard-inputs:
+	uv run python -m scripts.generate_benign_guard_inputs $${JUDGE_MODEL:+--model $$JUDGE_MODEL}
+
 
 # Phase-4 Level A: 46 canonical cases expanded to 145 graph runs. No network/key. Fails on any
 # gate, including a tool_selection_f1 drop against evals/baselines.json.
