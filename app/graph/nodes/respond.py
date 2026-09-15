@@ -15,7 +15,12 @@ from pydantic import ValidationError
 from app.graph.confirmation import recheck_reason
 from app.graph.context import GraphContext
 from app.graph.effects import transfer_to_human
-from app.graph.ontology import concept_trigger_words, policy_risk, retrieval_query
+from app.graph.ontology import (
+    TERM_EQUIVALENTS,
+    concept_trigger_words,
+    policy_risk,
+    retrieval_query,
+)
 from app.graph.recorder import TurnBudgetExceeded
 from app.graph.routing import (
     asks_debt_composition,
@@ -464,11 +469,14 @@ def _names_undocumented_concept(text: str, hits: Sequence[SearchHit]) -> bool:
     financiero") is documented only when one retrieved section carries **all** its words:
     "interés anual" is not documented by sections that mention interest accrual but no annual
     rate. One-word groups of the same family are co-referent names of its topic ("cripto",
-    "bitcoin"), so the topic is undocumented only when none of them is documented. Stems match
+    "bitcoin"), so the topic is undocumented only when none of them is documented, while a
+    named **currency** is its own subject: a transfer in dollars is a documented vehicle with
+    an undocumented currency, and what the question asks about is the currency. Stems match
     by prefix, the way the Snowball stem of "cripto" prefixes the index lexeme of
-    "criptomonedas". The check retires itself the day the base documents the subject.
+    "criptomonedas", and a declared equivalent (``TERM_EQUIVALENTS``) documents its customer
+    word. The check retires itself the day the base documents the subject.
     """
-    triggers = concept_trigger_words(text, "financiero_legal", "medios")
+    triggers = concept_trigger_words(text, "financiero_legal", "medios", "moneda")
     if not triggers:
         return False
     lexemes_per_hit = tuple(
@@ -476,16 +484,25 @@ def _names_undocumented_concept(text: str, hits: Sequence[SearchHit]) -> bool:
     )
 
     def documented(words: tuple[str, ...]) -> bool:
+        # TERM_EQUIVALENTS maps a customer word to the corpus word with the same meaning.
+        expanded = tuple(
+            synonym for word in words for synonym in TERM_EQUIVALENTS.get(word, (word,))
+        )
         return any(
             all(
                 any(lexeme.startswith(stem) for lexeme in lexemes)
-                for word in words
+                for word in expanded
                 for stem in tokenize(word)
             )
             for _, lexemes in lexemes_per_hit
         )
 
-    for groups in triggers.values():
+    for family, groups in triggers.items():
+        if family == "moneda":
+            # A named currency is its own subject, never co-referent with the vehicle.
+            if any(not documented(group) for group in groups):
+                return True
+            continue
         single = [group for group in groups if len(group) == 1]
         if single and not any(documented(group) for group in single):
             return True
@@ -527,10 +544,12 @@ async def _policy_plan(
     if not generate and not context.offline_policy_allowed:
         # Production answers policy only when the model judged the material answers the question.
         return await no_evidence("answer_model_required")
-    # Offline keeps the route's topic filter: it is a coarse but effective guard that kept
-    # neighbour-section extracts out before the model existed. With a model, answerability is
-    # adjudicated over the whole candidate set (ADR-011), so the topic never filters.
-    topic: Topic = "any" if generate else (route.topic or "any")
+    # Max recall in both modes: the model adjudicates answerability over the candidates
+    # (ADR-011) and, without one, the calibrated gate plus the undocumented-concept check
+    # below are the guard. A topic filter cannot tell a neighbour section from the answer —
+    # and it excludes the answer of a multi-topic question ("suma parcial" lives in faq while
+    # the route's topic says medios_pago) — so the topic never filters retrieval.
+    topic: Topic = "any"
     # The vocabulary bridge between the customer's words and the knowledge base's is a property
     # of the retrieval, not of the generation: without it the offline gate rejected answerable
     # discount questions because "rebaja" never matches the corpus's "quita" (ADR-011).
@@ -1189,11 +1208,19 @@ def _extract_sections(text: str, plan: ResponsePlan, state: AgentState) -> list[
         groups = families[family]
         single = [group for group in groups if len(group) == 1]
         wanted = [group for group in groups if len(group) > 1] or single
-        for hit, lexemes in lexemes_per_hit:
-            if any(_group_documented(words, lexemes) for words in wanted):
-                if hit.chunk.section_id not in chosen:
-                    chosen[hit.chunk.section_id] = hit
-                break
+        pick = next(
+            (
+                hit
+                for hit, lexemes in lexemes_per_hit
+                if any(_group_documented(words, lexemes) for words in wanted)
+            ),
+            None,
+        )
+        # A family whose subject no retrieved section documents contributes nothing: the dense
+        # top hit answers the question it resembles, which is not the family asked about.
+        if pick is not None and pick.chunk.section_id not in chosen:
+            chosen[pick.chunk.section_id] = pick
+            chosen[pick.chunk.section_id] = pick
     if not chosen:
         return [max(cited, key=lambda hit: hit.dense_score)]
     return sorted(chosen.values(), key=lambda hit: hit.dense_score, reverse=True)[

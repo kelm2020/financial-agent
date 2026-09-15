@@ -571,11 +571,15 @@ def test_retrieval_names_the_knowledge_base_term_for_a_concept_worded_otherwise(
 
     expanded = retrieval_query("¿Me harían alguna rebaja si pago todo?")
     assert expanded == "¿Me harían alguna rebaja si pago todo?\nTérminos de la base: quita"
-    for unchanged in (
-        "¿Me pueden hacer una quita de intereses?",
-        "¿Cuánto tarda la transferencia?",
-    ):
-        assert retrieval_query(unchanged) == unchanged
+    # "Tarda" names the accreditation the corpus words otherwise: the bridge carries it too
+    # (R-04: PAY-MET-002 ranked below FAQ-010 until "acreditación" joined the query).
+    assert (
+        retrieval_query("¿Cuánto tarda la transferencia?")
+        == "¿Cuánto tarda la transferencia?\nTérminos de la base: acreditación"
+    )
+    assert retrieval_query("¿Me pueden hacer una quita de intereses?") == (
+        "¿Me pueden hacer una quita de intereses?"
+    )
 
 
 async def test_policy_generation_retrieves_with_the_knowledge_base_terms() -> None:
