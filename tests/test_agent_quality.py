@@ -1148,3 +1148,70 @@ async def test_challenge_acceptance_phrase_selects_the_proposed_option() -> None
         selected = await say("Quiero aceptar la opción de pago que me ofreciste")
     assert "anticipo de $18.450 y 9 cuotas" in selected.text
     assert "¿Confirmás este acuerdo?" in selected.text
+
+
+# ------------------------------------------------- confirmation vs payment method
+
+
+async def _draft_turns(runtime: Any, *messages: str) -> Any:
+    conversation = await runtime.service.create_conversation("CUST-00125")
+    first = await runtime.service.send_message(
+        conversation.conversation_id,
+        conversation.customer_id,
+        "Quiero la opción de 3 cuotas",
+        context=runtime.context,
+    )
+    assert "confirmá" in first.text
+    last = first
+    for message in messages:
+        last = await runtime.service.send_message(
+            conversation.conversation_id,
+            conversation.customer_id,
+            message,
+            context=runtime.context,
+        )
+    return last
+
+
+async def test_rejecting_the_agreement_with_a_method_request_cancels_no_new_draft() -> None:
+    # Audit P4: "No quiero ese acuerdo, prefiero pagar por transferencia" is an explicit
+    # rejection (the negative lexicon always wins): the draft dies, no new one is frozen.
+    async with agent_runtime() as runtime:
+        turn = await _draft_turns(
+            runtime, "No quiero ese acuerdo, prefiero pagar por transferencia"
+        )
+        assert turn.state["pending_draft"] is None
+        assert runtime.recorder.agreement_writes == []
+        cancelled = [e for e in runtime.recorder.events if e["type"] == "agreement_draft_cancelled"]
+        assert cancelled, "the explicit rejection must cancel the draft"
+        assert "cancelé la propuesta" in turn.text
+
+
+async def test_method_change_without_rejection_keeps_the_offer() -> None:
+    # "Prefiero pagar por transferencia" (no negation): the same plan re-frozen with the new
+    # method and asked again; the confirmation is never inherited from the old summary.
+    async with agent_runtime() as runtime:
+        turn = await _draft_turns(runtime, "Prefiero pagar por transferencia")
+        draft = turn.state["pending_draft"]
+        assert draft is not None and draft.medio_pago == "transferencia"
+        assert "confirmá" in turn.text
+        assert runtime.recorder.agreement_writes == []
+
+
+async def test_yes_with_a_method_never_executes_the_old_summary() -> None:
+    # "sí, por transferencia": the sí confirms nothing (INV-4); the draft re-freezes with the
+    # new method and asks again.
+    async with agent_runtime() as runtime:
+        turn = await _draft_turns(runtime, "sí, por transferencia")
+        draft = turn.state["pending_draft"]
+        assert draft is not None and draft.medio_pago == "transferencia"
+        assert runtime.recorder.agreement_writes == []
+        assert "confirmá" in turn.text
+
+
+async def test_doubt_and_a_method_question_keep_the_draft() -> None:
+    # "¿Y si lo pago con tarjeta?" is a question, not a rejection nor a confirmation.
+    async with agent_runtime() as runtime:
+        turn = await _draft_turns(runtime, "¿Y si lo pago con tarjeta? todavía no estoy seguro")
+        assert turn.state["pending_draft"] is not None
+        assert runtime.recorder.agreement_writes == []
