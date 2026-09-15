@@ -7,7 +7,11 @@ calibration, evaluation) reads the committed cache offline and fails loudly on a
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
+import yaml  # type: ignore[import-untyped]
+
+from app.graph.ontology import retrieval_query
 from app.rag.corpus import load_corpus
 from app.rag.evaluation import load_retrieval_dataset
 from app.rag.factory import embedding_client
@@ -26,6 +30,12 @@ def cache_texts() -> list[str]:
     for dataset in (dev, test):
         texts += [case.query for case in dataset.positive]
         texts += [case.query for case in dataset.negative]
+    # Policy questions are searched through the same vocabulary bridge the generation path
+    # uses (ADR-011): the cache must hold the enriched query or offline evaluation fails on a
+    # miss instead of silently switching embedding spaces.
+    for path in sorted(Path("evals").glob("policy_*.yaml")):
+        cases = yaml.safe_load(path.read_bytes())["cases"]
+        texts += [retrieval_query(case["query"]) for case in cases if case.get("source") == "rag"]
     return list(dict.fromkeys(texts))
 
 

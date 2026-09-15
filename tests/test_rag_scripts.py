@@ -135,7 +135,10 @@ async def test_build_cache_embeds_corpus_and_both_splits_and_prunes(
     monkeypatch.setattr(build_embedding_cache, "embedding_client", fake_client)
     await build_embedding_cache.run(offline_settings(openai_api_key=SecretStr("sk")))
     texts = build_embedding_cache.cache_texts()
-    assert len(texts) == 35 + 42 + 8
+    # The corpus, both retrieval splits and every rag policy question searched through the
+    # vocabulary bridge: its enriched query is what the offline evaluation embeds (ADR-011),
+    # so a miss can never silently switch embedding spaces.
+    assert any("Términos de la base: quita" in text for text in texts)
     assert f"Cached {len(texts)} embeddings with local-hashing; pruned 1" in capsys.readouterr().out
 
 
