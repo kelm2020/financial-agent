@@ -31,6 +31,14 @@ dev = [
   "pytest-cov>=6.2,<8",
   "ruff>=0.12,<1",
 ]
+# Web chat (`make ui`). A default group so `make setup` and the test suite have it; the image of
+# the agent and the mock syncs without default groups and never ships it.
+ui = [
+  "gradio>=6.27,<7",
+]
+
+[tool.uv]
+default-groups = ["dev", "ui"]
 
 [build-system]
 requires = ["hatchling"]

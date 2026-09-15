@@ -16,6 +16,6 @@ COPY mock_api mock_api
 COPY scripts scripts
 COPY alembic.ini ./
 
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-default-groups
 
 CMD ["uv", "run", "uvicorn", "mock_api.main:app", "--host", "0.0.0.0", "--port", "8001"]

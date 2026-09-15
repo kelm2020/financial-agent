@@ -1,4 +1,4 @@
-.PHONY: setup up down migrate ingest mock run chat test test-rag embeddings-cache calibrate-rag eval-rag rerank-cache calibrate-rerank eval-rag-rerank eval-answerability eval-policy generate-policy-phrasings eval-guardrails eval-guardrails-live generate-benign-guard-inputs eval eval-heldout eval-blind eval-live eval-sim generate-blind-phrasings label-judge collect-judge-samples score-judge calibrate-judge coverage lint format check
+.PHONY: setup up down migrate ingest mock run chat ui testtest-rag embeddings-cache calibrate-rag eval-rag rerank-cache calibrate-rerank eval-rag-rerank eval-answerability eval-policy generate-policy-phrasings eval-guardrails eval-guardrails-live generate-benign-guard-inputs eval eval-heldout eval-blind eval-live eval-sim generate-blind-phrasings label-judge collect-judge-samples score-judge calibrate-judge coverage lint format check
 
 setup:
 	uv sync
@@ -24,7 +24,12 @@ run:
 # Chat in the terminal with a running agent (make run + make mock, or make up). The mock issues
 # the customer's token; CUSTOMER=CUST-00212|CUST-00377|CUST-00450 tries other accounts.
 chat:
-	uv run python -m app.cli --customer "$${CUSTOMER:-CUST-00125}"
+	@uv run python -m app.cli --customer "$${CUSTOMER:-CUST-00125}"
+
+# The same chat as a web page in Froneus blue (Gradio) on http://127.0.0.1:7860; needs make run
+# and make mock. The customer is picked on the page.
+ui:
+	uv run python -m app.ui --port "$${PORT:-7860}"
 
 # Unit suite only; needs neither network nor Postgres. tests/conftest.py ignores .env, clears
 # provider keys and blocks real HTTP transports, so a local key can never be used here.
