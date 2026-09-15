@@ -84,6 +84,7 @@ class CollectionsGateway:
         self,
         client: httpx.AsyncClient | None = None,
         settings: Settings | None = None,
+        breaker: CircuitBreaker | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self._owns_client = client is None
@@ -91,7 +92,11 @@ class CollectionsGateway:
             base_url=str(self.settings.mock_api_url).rstrip("/"),
             timeout=self.settings.tool_timeout_seconds,
         )
-        self._breaker = CircuitBreaker(
+        # The breaker is process state, not request state: the API injects one shared per
+        # dependency so consecutive turns see the same open circuit (the mock backend failing
+        # twice opens it for every later turn, not per message). Tests keep the per-gateway
+        # default; the API shares one through the lifespan.
+        self._breaker = breaker or CircuitBreaker(
             threshold=self.settings.circuit_breaker_threshold,
             reset_seconds=self.settings.circuit_breaker_reset_seconds,
         )
@@ -233,6 +238,20 @@ class CollectionsGateway:
                         response_model=response_model,
                         failure_mode=failure_mode,
                     )
+                    if _identity_mismatch(result.data, scope):
+                        # A record of another customer inside a 200 is a data-integrity
+                        # failure, not a transient one: retrying would fetch the same
+                        # corruption. The record never reaches the state.
+                        return ToolResult[T](
+                            status="upstream_error",
+                            data=None,
+                            message_for_model=(
+                                f"{operation} devolvió un registro que no corresponde al "
+                                "cliente de esta conversación."
+                            ),
+                            retriable=False,
+                            correlation_id=result.correlation_id,
+                        )
                     if result.retriable:
                         await self._breaker.record_failure(operation)
                         raise _RetriableReadError(result)
@@ -289,6 +308,24 @@ class CollectionsGateway:
                 failure_mode=failure_mode,
             )
             if result.status == "ok":
+                mismatched = _correlation_mismatch(result.data, payload)
+                if mismatched:
+                    # The backend confirmed a different object than the one this request
+                    # created: the write's outcome is UNKNOWN, not successful (the confirmed
+                    # terms are not the customer's) and not failed (something may exist).
+                    # The idempotency key is never regenerated: a new one could duplicate
+                    # the very side effect this uncertainty forbids us from probing.
+                    await self._breaker.record_failure(operation)
+                    return ToolResult[T](
+                        status="upstream_error",
+                        data=None,
+                        message_for_model=(
+                            f"{operation} confirmó un registro cuyos datos ({mismatched}) "
+                            "no coinciden con los enviados."
+                        ),
+                        retriable=False,
+                        correlation_id=result.correlation_id,
+                    )
                 await self._breaker.record_success(operation)
                 return result
             if result.status in {"timeout", "upstream_error"}:
@@ -422,3 +459,29 @@ def agreement_idempotency_key(customer_id: str, draft_id: str) -> str:
     import hashlib
 
     return hashlib.sha256(f"{customer_id}|{draft_id}".encode()).hexdigest()
+
+
+def _identity_mismatch(data: Any, scope: CustomerScope) -> bool:
+    """Whether a successfully parsed payload belongs to another customer.
+
+    Schema validation cannot catch this: a well-formed record of CUST-00212 answers
+    the request of CUST-00125. The identity fields the domain models carry are the
+    contract; a payload without any identity is checked by its schema alone.
+    """
+    customer_id = getattr(data, "customer_id", None)
+    return customer_id is not None and customer_id != scope.customer_id
+
+
+def _correlation_mismatch(data: Any, payload: dict[str, Any]) -> str | None:
+    """The first request field the confirmed response contradicts, or None.
+
+    A write is only successful when the backend confirms the object this request
+    created: customer, draft, option and debt fingerprint must match exactly. Any
+    difference means the outcome is unknown, whatever the HTTP status said.
+    """
+    for field in ("customer_id", "draft_id", "opcion_id", "debt_fingerprint"):
+        expected = payload.get(field)
+        confirmed = getattr(data, field, None)
+        if confirmed is not None and expected is not None and confirmed != expected:
+            return field
+    return None

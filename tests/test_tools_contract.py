@@ -754,3 +754,132 @@ def test_initialize_database_runs_migrations_and_sets_up_the_checkpointer(
     fake_upgrade.assert_called_once()
     fake_from_conn.assert_called_once()
     fake_checkpointer.setup.assert_called_once()
+
+
+# ------------------------------------------------------------------ contextual validation
+
+
+class _ForeignPayloadTransport(httpx.MockTransport):
+    """Serves a 200 payload whose identity differs from the requested customer."""
+
+    def __init__(self, body: dict[str, Any]) -> None:
+        self.body = body
+        self.requests: list[httpx.Request] = []
+        super().__init__(self._handle)
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        return httpx.Response(200, json=self.body)
+
+
+def _debt_body(customer_id: str) -> dict[str, Any]:
+    return {
+        "customer_id": customer_id,
+        "moneda": "ARS",
+        "saldo_total": "184500.00",
+        "capital": "152000.00",
+        "intereses": "32500.00",
+        "dias_mora": 63,
+        "estado": "mora_media",
+        "vencimientos": [
+            {
+                "periodo": "2026-07",
+                "monto": "61500.00",
+                "vencimiento": "2026-07-10",
+                "estado": "vencido",
+            }
+        ],
+        "acuerdos_previos": {"total": 1, "incumplidos": 0},
+        "as_of": "2026-09-11T14:03:00-03:00",
+    }
+
+
+async def test_read_rejects_a_200_payload_of_another_customer() -> None:
+    # The backend answered 200 with a valid schema for CUST-00212 while the scope is
+    # CUST-00125: schema validation alone would let a foreign record into the state.
+    settings = Settings(mock_api_url="http://test", tool_timeout_seconds=0.1)
+    scope = scope_for("CUST-00125", settings)
+    transport = _ForeignPayloadTransport(_debt_body("CUST-00212"))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        gateway = CollectionsGateway(client=client, settings=settings)
+        result = await gateway.get_debt(scope)
+    assert result.status == "upstream_error"
+    assert result.data is None
+    assert "no corresponde" in result.message_for_model
+    assert result.retriable is False
+
+
+async def test_read_accepts_the_same_customer_payload() -> None:
+    settings = Settings(mock_api_url="http://test", tool_timeout_seconds=0.1)
+    scope = scope_for("CUST-00125", settings)
+    transport = _ForeignPayloadTransport(_debt_body("CUST-00125"))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        gateway = CollectionsGateway(client=client, settings=settings)
+        result = await gateway.get_debt(scope)
+    assert result.status == "ok" and result.data is not None
+    assert result.data.customer_id == "CUST-00125"
+
+
+def _agreement_body(**overrides: str) -> dict[str, Any]:
+    base = {
+        "agreement_id": "AGR-00931",
+        "customer_id": "CUST-00125",
+        "draft_id": "DRAFT-1",
+        "opcion_id": "OPT-3C",
+        "debt_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "estado": "active",
+        "created_at": "2026-09-11T14:03:00-03:00",
+    }
+    return {**base, **overrides}
+
+
+async def _post_agreement(body: dict[str, Any]) -> Any:
+    settings = Settings(mock_api_url="http://test", tool_timeout_seconds=0.1)
+    scope = scope_for("CUST-00125", settings)
+    transport = _ForeignPayloadTransport(body)
+    client = httpx.AsyncClient(transport=transport, base_url="http://test")
+    gateway = CollectionsGateway(client=client, settings=settings)
+    result = await gateway.create_payment_agreement(
+        scope,
+        draft_id="DRAFT-1",
+        opcion_id="OPT-3C",
+        debt_fingerprint="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        medio_pago="debito_automatico",
+        idempotency_key="key-1",
+    )
+    await client.aclose()
+    return result
+
+
+async def test_write_rejects_a_response_for_another_draft() -> None:
+    # The backend confirmed a DIFFERENT agreement than the one this conversation froze:
+    # neither success (the registered terms are not the customer's) nor failure (it may
+    # exist) may be claimed, and the idempotency key must never change.
+    result = await _post_agreement(_agreement_body(draft_id="DRAFT-OTHER"))
+    assert result.status == "upstream_error"
+    assert result.data is None
+    assert result.retriable is False
+    assert "no coincide" in result.message_for_model
+
+
+async def test_write_rejects_a_response_for_another_customer() -> None:
+    result = await _post_agreement(_agreement_body(customer_id="CUST-00212"))
+    assert result.status == "upstream_error" and result.data is None
+    assert result.retriable is False
+
+
+async def test_write_rejects_a_response_for_another_option_or_fingerprint() -> None:
+    result = await _post_agreement(_agreement_body(opcion_id="OPT-6C"))
+    assert result.status == "upstream_error" and result.data is None
+    result = await _post_agreement(
+        _agreement_body(
+            debt_fingerprint="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        )
+    )
+    assert result.status == "upstream_error" and result.data is None
+
+
+async def test_write_accepts_a_matching_response() -> None:
+    result = await _post_agreement(_agreement_body())
+    assert result.status == "ok" and result.data is not None
+    assert result.data.draft_id == "DRAFT-1"
