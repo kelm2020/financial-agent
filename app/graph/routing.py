@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
+from app.graph.ontology import concepts, mixed_request, policy_request
 from app.graph.state import RouteResult
 from app.guards.normalize import detection_skeleton
 from app.guards.numbers_es import numbers_in_words
@@ -361,13 +362,22 @@ def asks_policy(text: str, installments: int | None = None) -> bool:
 def route_turn(text: str) -> RouteResult:
     """Deterministic routing table (§8.2). The model only classifies what this leaves ambiguous."""
     normalized = detection_skeleton(text)
+
+    # Normalize number words only in the installment slot, using the shared Spanish parser.
+    def installment_number(match: re.Match[str]) -> str:
+        values = numbers_in_words(match.group())
+        return (
+            f"{int(values[0])} cuotas"
+            if len(values) == 1 and 1 <= values[0] <= 99
+            else match.group()
+        )
+
+    normalized = re.sub(r"\b[a-z]+ cuotas?\b", installment_number, normalized)
     option_match = _OPTION.search(text)
-    installments_match = _INSTALLMENTS.search(text)
+    installments_match = _INSTALLMENTS.search(normalized)
     option_id = option_match.group().upper() if option_match else None
     installments = int(installments_match.group(1)) if installments_match else None
 
-    if _has(normalized, "cuando derivan", "motivos de derivacion"):
-        return RouteResult(intent="consulta_general", topic="escalamiento")
     # ESC-002 before anything else: a declared vulnerability is never negotiated, even when the
     # same message also asks for installments or mentions a dispute.
     if _CRISIS.search(normalized) or _VULNERABILITY.search(normalized):
@@ -376,8 +386,16 @@ def route_turn(text: str) -> RouteResult:
         return RouteResult(intent="pedido_humano", escalation_motivo="reclamo")
     if _LEGAL.search(normalized):
         return RouteResult(intent="pedido_humano", escalation_motivo="amenaza_legal")
-    if _HUMAN.search(normalized):
+    informational_escalation = _has(normalized, "cuando derivan", "motivos de derivacion")
+    human_text = (
+        re.sub(r"\b(?:un operador|una operadora)\b", "", normalized)
+        if informational_escalation
+        else normalized
+    )
+    if _HUMAN.search(human_text):
         return RouteResult(intent="pedido_humano", escalation_motivo="pedido_explicito")
+    if _has(normalized, "cuando derivan", "motivos de derivacion"):
+        return RouteResult(intent="consulta_general", topic="escalamiento")
     choosing = (
         bool(_INSTALLMENT_CHOICE.search(normalized))
         or bool(_INSTALLMENT_ACCEPTANCE.search(normalized))
@@ -399,6 +417,18 @@ def route_turn(text: str) -> RouteResult:
     choosing = choosing and not bool(_INSTALLMENT_REJECTION.search(normalized))
     if option_id or (installments is not None and choosing):
         return RouteResult(intent="aceptar_opcion", option_id=option_id, installments=installments)
+    if mixed_request(text):
+        return RouteResult(intent="consulta_mixta")
+    if _OFF_TOPIC.search(normalized):
+        # Paying WITH crypto or a cheque asks which payment methods are accepted, and PAY-MET-003
+        # answers it. Investing, saving or advice is out of collections even when it mentions
+        # installments or "esta deuda".
+        if re.search(r"\b(?:aceptan|pagar|abonar)\b.*\b(?:cripto|bitcoin|cheque)", normalized):
+            return RouteResult(intent="consulta_general", topic="medios_pago")
+        return RouteResult(intent="fuera_de_dominio")
+    if policy_request(text):
+        topic = "negociacion" if concepts(text) & {"quita", "anticipo"} else "any"
+        return RouteResult(intent="consulta_general", topic=topic)
     if _AMOUNT_AMBIGUITY.search(normalized):
         return RouteResult(intent="ambiguo")
     if installments is not None and _has(
@@ -432,13 +462,12 @@ def route_turn(text: str) -> RouteResult:
         return RouteResult(intent="consulta_deuda", topic="faq")
     if _has(normalized, "opciones", "alternativas", "cuotas", "negoci"):
         return RouteResult(intent="negociacion", installments=installments)
-    # Strong investment/advice language wins over an incidental mention of "esta deuda".
-    if _OFF_TOPIC.search(normalized):
-        return RouteResult(intent="fuera_de_dominio")
     if _PLAN_REQUEST.search(normalized):
         # "quiero un plan" asks for alternatives; "plan de ahorro" was already off-topic above and
         # "un cargo por un plan que nunca firmé" names a plan without asking for one.
         return RouteResult(intent="negociacion", installments=installments)
+    if re.search(r"\b(?:prescri\w*|sucursal\w*|tasa|cft|costo financiero)\b", normalized):
+        return RouteResult(intent="consulta_general")
     if _has(normalized, "cuanto debo", "saldo", "deuda"):
         return RouteResult(intent="consulta_deuda")
     if _has(

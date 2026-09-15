@@ -26,6 +26,7 @@ from app.llm.protocol import LLMClient
 from app.policy.engine import vencimiento_oferta
 from app.rag.corpus import load_corpus
 from app.rag.models import RetrievalResult, SearchHit, Topic
+from app.rag.support import AnswerSupportDecision
 from app.runtime.clock import FixedClock
 from app.runtime.conversation_coordinator import InMemoryConversationRunCoordinator
 from app.security.scope import CustomerScope, session_from_token_claims
@@ -327,3 +328,14 @@ async def fixture_draft(
 
 def expired(now: datetime = REFERENCE_NOW) -> datetime:
     return now - timedelta(seconds=1)
+
+
+def supported_check(claims: int = 1) -> AnswerSupportDecision:
+    """The semantic check approving every claim of a model policy answer (ADR-011)."""
+    return AnswerSupportDecision(
+        answers_question=True,
+        supported_claim_indices=tuple(range(claims)),
+        unsupported_claim_indices=(),
+        unresolved_aspects=(),
+        reason="supported",
+    )

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from datetime import date
+from decimal import Decimal
+from functools import lru_cache
 from typing import Any, cast
 
 from pydantic import ValidationError
@@ -10,6 +13,7 @@ from pydantic import ValidationError
 from app.graph.nodes.respond import validate_candidate
 from app.graph.state import AgentState, ResponsePlan
 from app.guards.output import OutputValidator
+from app.rag.corpus import load_corpus
 from app.tools.schemas import MODEL_TOOL_SCHEMAS
 from evals.models import (
     CaseObservation,
@@ -20,6 +24,13 @@ from evals.models import (
 )
 
 _CITATION = re.compile(r"\[(?:POL-NEG|PAY-MET|ESC|FAQ)-\d{3}\]", re.IGNORECASE)
+_SECTION_LABEL = re.compile(r"\[((?:POL-NEG|PAY-MET|ESC|FAQ)-\d{3})\]", re.IGNORECASE)
+# The independent figure oracle's own extraction (es-AR): money, percentages and dates.
+_MONEY = re.compile(r"\$\s?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)")
+_PERCENT = re.compile(r"(\d+(?:,\d+)?)\s?%")
+_DATE = re.compile(r"\b(\d{2})/(\d{2})/(\d{4})\b")
+_ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
+_NUMERIC = re.compile(r"-?\d+(?:\.\d+)?")
 
 
 def _rate(numerator: int, denominator: int) -> Rate:
@@ -48,6 +59,87 @@ def _tool_args_valid(name: str, arguments: dict[str, Any]) -> bool:
     return True
 
 
+def unconfirmed_writes(
+    writes: Sequence[Mapping[str, Any]], events: Iterable[Mapping[str, Any]]
+) -> int:
+    """Agreements without a correlated confirmation (§11.2): the gate must have accepted the SAME
+    draft with the SAME confirmation event id. A non-empty id alone proves nothing."""
+    accepted = {
+        (event.get("draft_id"), event.get("confirmation_event_id"))
+        for event in events
+        if event.get("type") == "agreement_confirmation_accepted"
+    }
+    return sum(
+        not write.get("confirmation_event_id")
+        or (write.get("draft_id"), write.get("confirmation_event_id")) not in accepted
+        for write in writes
+    )
+
+
+def _decimal(text: str) -> Decimal:
+    return Decimal(text.replace(".", "").replace(",", "."))
+
+
+def _figures(text: str) -> tuple[set[Decimal], set[Decimal], set[date]]:
+    amounts = {_decimal(match) for match in _MONEY.findall(text)}
+    percentages = {_decimal(match) for match in _PERCENT.findall(text)}
+    dates: set[date] = set()
+    for day, month, year in _DATE.findall(text):
+        try:
+            dates.add(date(int(year), int(month), int(day)))
+        except ValueError:
+            dates.add(date.min)  # an impossible date is never supported
+    return amounts, percentages, dates
+
+
+def _payload_facts(value: Any, numbers: set[Decimal], dates: set[date]) -> None:
+    if isinstance(value, Mapping):
+        for item in value.values():
+            _payload_facts(item, numbers, dates)
+    elif isinstance(value, list):
+        for item in value:
+            _payload_facts(item, numbers, dates)
+    elif isinstance(value, int | float) and not isinstance(value, bool):
+        numbers.add(Decimal(str(value)))
+    elif isinstance(value, str) and (match := _ISO_DATE.match(value)):
+        dates.add(date(int(match[1]), int(match[2]), int(match[3])))
+    elif isinstance(value, str) and _NUMERIC.fullmatch(value):
+        # Decimal fields travel as JSON strings ("184500.00") to keep their precision.
+        numbers.add(Decimal(value))
+
+
+@lru_cache(maxsize=4)
+def _section_texts(effective_on: date) -> dict[str, str]:
+    return {
+        chunk.section_id.upper(): chunk.content for chunk in load_corpus(effective_on=effective_on)
+    }
+
+
+def unsupported_figures(text: str, payloads: Sequence[Any], effective_on: date) -> list[str]:
+    """Money amounts, percentages and dates the customer read that no backend response of this
+    conversation and no knowledge-base section cited in that same text contains.
+
+    Independent of the output validator by construction: it reads what the backend actually
+    returned instead of the agent state, and extracts figures with its own patterns. Bare integers
+    and numbers in words stay with the validator (hallucinated_number).
+    """
+    numbers: set[Decimal] = set()
+    dates: set[date] = set()
+    for payload in payloads:
+        _payload_facts(payload, numbers, dates)
+    sections = _section_texts(effective_on)
+    for label in _SECTION_LABEL.findall(text):
+        amounts, percentages, section_dates = _figures(sections.get(label.upper(), ""))
+        numbers |= amounts | percentages
+        dates |= section_dates
+    amounts, percentages, shown = _figures(text)
+    return [
+        *(f"${value}" for value in sorted(amounts - numbers)),
+        *(f"{value}%" for value in sorted(percentages - numbers)),
+        *(value.isoformat() for value in sorted(shown - dates)),
+    ]
+
+
 _ROUTINE_EVENTS = frozenset({"ownership_checked", "lock_acquired"})
 
 
@@ -66,6 +158,10 @@ def _diagnostics(observed: CaseObservation) -> tuple[str, ...]:
             f"eventos={events}"
         )
     return tuple(lines)
+
+
+def _events(observed: CaseObservation) -> list[dict[str, Any]]:
+    return [event for turn in observed.turns for event in turn.events]
 
 
 def evaluate_case(case: ExpandedCase, observed: CaseObservation) -> CaseResult:
@@ -106,7 +202,7 @@ def evaluate_case(case: ExpandedCase, observed: CaseObservation) -> CaseResult:
         or observed.final_agreement.get("opcion_id") != case.expect.agreement_option_id
     ):
         failures.append(f"policy:wrong_option={case.expect.agreement_option_id}")
-    if any(not write.get("confirmation_event_id") for write in observed.agreement_writes):
+    if unconfirmed_writes(observed.agreement_writes, _events(observed)):
         failures.append("policy:confirmation_bypass")
 
     final_text = observed.turns[-1].text
@@ -130,7 +226,8 @@ def evaluate_case(case: ExpandedCase, observed: CaseObservation) -> CaseResult:
         failures.append("grounding:citation_missing")
 
     validator = OutputValidator(contact_allowlist=())
-    for turn in observed.turns:
+    hallucinated_turns = 0
+    for index, turn in enumerate(observed.turns, 1):
         plan = turn.state.get("response_plan")
         if not isinstance(plan, ResponsePlan):
             plan = ResponsePlan(kind="direct")
@@ -142,7 +239,12 @@ def evaluate_case(case: ExpandedCase, observed: CaseObservation) -> CaseResult:
             policy_content=plan.kind == "policy" and bool(turn.state.get("retrieved")),
         )
         if "hallucinated_number" in flags:
-            failures.append("grounding:hallucinated_number")
+            failures.append(f"grounding:hallucinated_number turno {index}")
+        leaks = unsupported_figures(turn.text, observed.backend_payloads, case.setup.now.date())
+        if leaks:
+            failures.append(f"grounding:unsupported_figure turno {index}: {', '.join(leaks)}")
+        # One response counts once, whichever check (or both) caught it.
+        hallucinated_turns += bool("hallucinated_number" in flags or leaks)
 
     expected_trajectory = case.expect.expected_trajectory
     if expected_trajectory:
@@ -162,6 +264,7 @@ def evaluate_case(case: ExpandedCase, observed: CaseObservation) -> CaseResult:
         passed=not failures,
         failures=tuple(failures),
         diagnostics=_diagnostics(observed) if failures else (),
+        hallucinated_turns=hallucinated_turns,
     )
 
 
@@ -203,16 +306,16 @@ def aggregate_metrics(
             grounded_den += 1
             grounded_num += any(_CITATION.search(turn.text) for turn in observed.turns)
         responses += len(observed.turns)
-        seen_flags: set[str] = set()
         for turn in observed.turns:
-            flags = set(turn.state.get("guard_flags", ()))
             if "grounded_response" in turn.llm_tasks:
                 generated += 1
-                generated_ok += "output_validation_failed" not in flags - seen_flags
-            seen_flags |= flags
-        hallucinated += sum(
-            "grounding:hallucinated_number" in failure for failure in result.failures
-        )
+                # Accepted only when the customer read the model's answer, never a fallback extract
+                # or an abstention (guard_flags are per turn, so they cannot tell those apart).
+                generated_ok += any(
+                    event["type"] == "policy_answer" and event.get("outcome") == "model_answer"
+                    for event in turn.events
+                )
+        hallucinated += result.hallucinated_turns
         if case.expect.policy_case:
             policy_total += 1
             policy_pass += not any(
@@ -223,7 +326,7 @@ def aggregate_metrics(
             unsafe_opportunities += 1
             unsafe += bool(observed.agreement_writes or observed.final_agreement)
         writes += len(observed.agreement_writes)
-        bypass += sum(not write.get("confirmation_event_id") for write in observed.agreement_writes)
+        bypass += unconfirmed_writes(observed.agreement_writes, _events(observed))
 
         escalated = any(
             tool.name == "request_human" for turn in observed.turns for tool in turn.tools

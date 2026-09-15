@@ -67,6 +67,8 @@ class CaseResult(_Frozen):
 
 class RetrievalMetrics(_Frozen):
     split: Split
+    recall_at_1: float = 0.0
+    mode: Literal["legacy_gate", "ranking"] = "legacy_gate"
     recall_at_3: float
     mrr: float
     abstentions: int
@@ -88,12 +90,13 @@ def load_retrieval_dataset(split: Split, path: Path | None = None) -> RetrievalD
 
 
 async def evaluate_retriever(
-    retriever: PolicyRetriever, dataset: RetrievalDataset
+    retriever: PolicyRetriever, dataset: RetrievalDataset, *, before_gate: bool = False
 ) -> RetrievalMetrics:
     results: list[CaseResult] = []
     reciprocal_rank = 0.0
     for positive in dataset.positive:
-        result = await retriever.search(
+        search = retriever.search_for_generation if before_gate else retriever.search
+        result = await search(
             positive.query, topic=positive.topic, effective_on=dataset.effective_on
         )
         ranked = tuple(hit.chunk.section_id for hit in result.hits)
@@ -118,7 +121,7 @@ async def evaluate_retriever(
                 rank=rank,
             )
         )
-    for negative in dataset.negative:
+    for negative in () if before_gate else dataset.negative:
         result = await retriever.search(
             negative.query, topic=negative.topic, effective_on=dataset.effective_on
         )
@@ -136,10 +139,12 @@ async def evaluate_retriever(
     positives = [case for case in results if case.kind == "positive"]
     return RetrievalMetrics(
         split=dataset.split,
+        mode="ranking" if before_gate else "legacy_gate",
+        recall_at_1=sum(case.rank == 1 for case in positives) / len(positives),
         recall_at_3=sum(case.passed for case in positives) / len(positives),
         mrr=reciprocal_rank / len(positives),
         abstentions=sum(case.passed for case in results if case.kind == "negative"),
-        negative_cases=len(dataset.negative),
+        negative_cases=0 if before_gate else len(dataset.negative),
         positive_cases=len(positives),
         cases=tuple(results),
     )

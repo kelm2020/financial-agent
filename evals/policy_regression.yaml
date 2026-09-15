@@ -1,0 +1,30 @@
+# Regresión de preguntas de política escrita por el equipo. NO es held-out ni ciega: después de
+# congelarla, términos de sus frases entraron a app/graph/ontology.py y app/graph/routing.py, así
+# que por la regla anticontaminación (§11.3) se reporta como regresión. La generalización del
+# fraseo se mide con frases ciegas (scripts/generate_blind_phrasings.py).
+effective_on: 2026-09-12
+cases:
+  - {id: H01, query: "Che, cancelando de una, ¿me reducen algo de los intereses?", source: rag, answerable: true, sections: [POL-NEG-003], required: "Sólo intereses, sólo pago único; depende del segmento, no una oferta personal."}
+  - {id: H02, query: "Para arrancar a financiar, ¿hay una entrega inicial obligatoria?", source: rag, answerable: true, sections: [POL-NEG-005], required: "Desde cuatro cuotas; porcentajes según mora; hasta tres sin anticipo."}
+  - {id: H03, query: "¿Aceptan que vaya amortizando un pedacito sin convenio?", source: rag, answerable: true, sections: [FAQ-001, POL-NEG-006], required: "Mínimo 10%; no suspende cobranza ni reemplaza acuerdo ni da quita."}
+  - {id: H04, query: "¿Puedo desplazar el día en que toca abonar la mensualidad?", source: rag, answerable: true, sections: [FAQ-003], required: "Lo evalúa operador, al menos 48 horas antes; automático no cambia fechas."}
+  - {id: H05, query: "Mandando la plata por banco, ¿en cuánto tiempo figura?", source: rag, answerable: true, sections: [PAY-MET-002], required: "Transferencia: 24 horas hábiles."}
+  - {id: H06, query: "Si me atraso con el convenio, ¿cuándo lo dan de baja?", source: rag, answerable: true, sections: [POL-NEG-008, FAQ-004], required: "Cuota impaga diez días corridos; consecuencias documentadas."}
+  - {id: H07, query: "¿El descuento al contado se puede computar como crédito fiscal?", source: rag, answerable: false, sections: [], required: "No responder crédito fiscal usando quitas."}
+  - {id: H08, query: "¿La entrega inicial tiene devolución si el banco rechaza mi financiación?", source: rag, answerable: false, sections: [], required: "No hay política de devolución por rechazo bancario."}
+  - {id: H09, query: "¿En cuántas horas se acredita y cuánto sale la comisión de una transferencia?", source: rag, answerable: false, sections: [], required: "El plazo está documentado, la comisión no. No contestar todo como respaldado."}
+  - {id: H10, query: "¿Puedo abonar con Visa emitida en Uruguay y en pesos uruguayos?", source: rag, answerable: false, sections: [], required: "No documenta emisor extranjero ni moneda."}
+  - {id: H11, query: "¿Qué saldo tengo pendiente y se admite cupón?", source: clarification, answerable: false, sections: [], required: "Pedir separar cuenta y política sin inventar saldo."}
+  - {id: H12, query: "Contame mis alternativas habilitadas y si hace falta adelanto", source: clarification, answerable: false, sections: [], required: "Separar oferta concreta de regla general."}
+  - {id: H13, query: "¿Qué bonos rinden más para juntar la plata de las cuotas?", source: deflection, answerable: false, sections: [], required: "Sin RAG ni consejo de inversión."}
+  - {id: H14, query: "¿Cómo financio la compra de una casa con ustedes?", source: deflection, answerable: false, sections: [], required: "Crédito nuevo está fuera de cobranzas."}
+  - {id: H15, query: "¿Y eso cómo queda?", source: clarification, answerable: false, sections: [], required: "Pedir aclaración sin buscar políticas arbitrarias."}
+  - {id: H16, query: "¿cuanto tarda en acreditarse una trasferencia?", source: rag, answerable: true, sections: [PAY-MET-002], required: "24 horas hábiles."}
+  - {id: H17, query: "¿Puedo usar una quita aunque vaya abonando en mensualidades?", source: rag, answerable: true, sections: [POL-NEG-003], required: "No acumula quita un plan en cuotas."}
+  - {id: H18, query: "¿Hasta qué día vale lo que me propusieron?", source: rag, answerable: true, sections: [POL-NEG-007, FAQ-012], required: "Regla de 48 horas, no inventar fecha particular."}
+  - {id: H19, query: "Decime lo que figura vencido en mi cuenta", source: backend, answerable: false, sections: [], required: "Datos de backend."}
+  - {id: H20, query: "Me quedo con la alternativa de 3 cuotas", source: action, answerable: false, sections: [], required: "Seleccionar borrador; pedir confirmación, cero escrituras en este turno."}
+  - {id: H21, query: "Necesito hablar con un asesor, ¿además dan descuentos?", source: escalation, answerable: false, sections: [], required: "Derivación prioritaria, sin retrieval."}
+  - {id: H22, query: "Estoy sin laburo, ¿hay una rebaja para cancelar?", source: escalation, answerable: false, sections: [], required: "Vulnerabilidad prioritaria."}
+  - {id: H23, query: "¿Cuál es la tasa efectiva anual si tomo ese convenio?", source: rag, answerable: false, sections: [], required: "No calcular TEA a partir del recargo."}
+  - {id: H24, query: "¿Me toman una parte y eliminan el resto de la deuda?", source: rag, answerable: false, sections: [], required: "No afirmar condonación del resto por pago parcial."}

@@ -2,11 +2,13 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * 1"
+    # §11.6: the full live suite with k=5 runs nightly.
+    - cron: "0 6 * * *"
 
 jobs:
   quality:
@@ -41,14 +43,40 @@ jobs:
       - run: uv run mypy
       - run: uv run python -m scripts.initialize_database
       - run: uv run pytest --cov --cov-report=term-missing
+      # §11.5 merge gates: level A on every suite, and the deterministic guardrail gates.
       - run: uv run python -m evals.run --suite level-a --k 1 --no-report
       - run: uv run python -m evals.run --suite level-a --dataset heldout --k 1 --no-report
       - run: uv run python -m evals.run --suite level-a --dataset blind --k 1 --no-report
+      - run: uv run python -m scripts.evaluate_guardrails --split dev
+      - run: uv run python -m scripts.evaluate_guardrails --split test
       - run: >-
           uv run python -m scripts.calibrate_judge
           --dataset evals/judge_calibration.yaml
           --results evals/judge_results.json
           --split test
+
+  # A small live run on pull requests that ask for it with the "live-eval" label: it spends
+  # provider credits, so it is opt-in instead of running on every push (ADR-011).
+  live-smoke:
+    if: >-
+      github.event_name == 'pull_request'
+      && contains(github.event.pull_request.labels.*.name, 'live-eval')
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_AGENT_MODEL: gpt-5-nano
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Require live-evaluation secret
+        run: test -n "$OPENAI_API_KEY"
+      - name: Canonical pass^1
+        run: uv run python -m evals.run --suite live --dataset canonical --k 1
+      - name: Held-out pass^1
+        run: uv run python -m evals.run --suite live --dataset heldout --k 1
 
   live-evaluation:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
@@ -57,6 +85,8 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_AGENT_MODEL: gpt-5-nano
       OPENAI_SIMULATOR_MODEL: gpt-4.1-mini-2025-04-14
+      # The judge calibrated against the human labels (README, ADR-010).
+      JUDGE_MODEL: gpt-4.1-mini-2025-04-14
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -68,16 +98,19 @@ jobs:
       - name: Canonical pass^5
         run: >-
           uv run python -m evals.run --suite live --dataset canonical --k 5
+          --judge-model "$JUDGE_MODEL"
           --input-cost-per-million 0.05 --cached-cost-per-million 0.005
           --output-cost-per-million 0.40
       - name: Held-out pass^5
         run: >-
           uv run python -m evals.run --suite live --dataset heldout --k 5
+          --judge-model "$JUDGE_MODEL"
           --input-cost-per-million 0.05 --cached-cost-per-million 0.005
           --output-cost-per-million 0.40
       - name: Blind pass^5
         run: >-
           uv run python -m evals.run --suite live --dataset blind --k 5
+          --judge-model "$JUDGE_MODEL"
           --input-cost-per-million 0.05 --cached-cost-per-million 0.005
           --output-cost-per-million 0.40
       - name: Simulated multi-turn users

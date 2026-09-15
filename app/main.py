@@ -255,12 +255,16 @@ def create_app(
                 scope=scope,
                 gateway=gateway,
                 clock=clock or SystemClock(),
-                recorder=TurnRecorder(max_tool_calls=4, max_llm_calls=3),
+                # guard classifier, policy answer, one regeneration or the model router, and the
+                # semantic check. §8.3.1 says 3; measured on the dev policy set, 3 left 4 of 10
+                # model answers without their check (ADR-011).
+                recorder=TurnRecorder(max_tool_calls=4, max_llm_calls=4),
                 output_validator=output_validator,
                 llm=api_llm,
                 guard_classifier=api_llm,
                 retriever=api_retriever,
                 system_prompt=system_prompt,
+                offline_policy_allowed=resolved.app_env != "production",
             )
             try:
                 result = await service.send_message(

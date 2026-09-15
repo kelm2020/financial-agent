@@ -339,13 +339,15 @@ async def test_high_risk_answer_requires_verified_quotes_for_every_sentence() ->
             "claims": [{"sentence": invented, "section_id": "POL-NEG-003", "quote": "quita"}],
         }
     )
-    llm = ScriptedLLM([good])
+    from tests.agent_support import supported_check
+
+    llm = ScriptedLLM([good, supported_check()])
     async with agent_runtime(llm=llm, retriever=StaticRetriever([hit])) as runtime:
         conversation = await runtime.service.create_conversation("CUST-00125")
         (result,) = await _say(runtime, conversation, "¿Hay quita de intereses?")
         assert result.text == f"{sentence} [POL-NEG-003]"
     # A sentence the model did not back with a claim is dropped, never shown (and recorded).
-    llm = ScriptedLLM([uncovered])
+    llm = ScriptedLLM([uncovered, supported_check()])
     async with agent_runtime(llm=llm, retriever=StaticRetriever([hit])) as runtime:
         conversation = await runtime.service.create_conversation("CUST-00125")
         (result,) = await _say(runtime, conversation, "¿Hay quita de intereses?")
@@ -390,12 +392,16 @@ async def test_output_is_regenerated_or_templated_never_patched() -> None:
             "claims": [{"sentence": sentence, "section_id": "POL-NEG-003", "quote": sentence}],
         }
     )
-    llm = ScriptedLLM([_ungrounded("No tenés que pagar $999.999 hoy. [POL-NEG-003]"), good])
+    from tests.agent_support import supported_check
+
+    llm = ScriptedLLM(
+        [_ungrounded("No tenés que pagar $999.999 hoy. [POL-NEG-003]"), good, supported_check()]
+    )
     async with agent_runtime(llm=llm, retriever=StaticRetriever([hit])) as runtime:
         conversation = await runtime.service.create_conversation("CUST-00125")
         (result,) = await _say(runtime, conversation, HIGH_RISK_QUESTION)
         assert result.text == f"{sentence} [POL-NEG-003]"
-        assert len(llm.calls) == 2
+        assert len(llm.calls) == 3  # first draft, regeneration, semantic check
         repair = llm.calls[1].messages[-1]["content"]
         assert "hallucinated_number" in repair and "999" not in repair
     llm = ScriptedLLM(
@@ -518,6 +524,8 @@ async def test_api_forwards_only_render_and_validate_custom_events() -> None:
 
 
 async def test_high_risk_nodes_emit_filler_then_validated_answer() -> None:
+    from tests.agent_support import supported_check
+
     sentence = _grounded_sentence("POL-NEG-003")
     reply = GroundedReply.model_validate(
         {
@@ -526,7 +534,8 @@ async def test_high_risk_nodes_emit_filler_then_validated_answer() -> None:
         }
     )
     async with agent_runtime(
-        llm=ScriptedLLM([reply]), retriever=StaticRetriever([corpus_chunk("POL-NEG-003")])
+        llm=ScriptedLLM([reply, supported_check()]),
+        retriever=StaticRetriever([corpus_chunk("POL-NEG-003")]),
     ) as runtime:
         conversation = await runtime.service.create_conversation("CUST-00125")
         (result,) = await _say(runtime, conversation, "¿Qué quita existe?")

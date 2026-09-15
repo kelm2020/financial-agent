@@ -72,3 +72,6 @@ class GraphContext:
     guard_classifier: LLMClient | None = None
     retriever: Retriever | None = None
     system_prompt: str = ""
+    # Without a model, policy answers come from the calibrated retrieval gate. Production turns it
+    # off: every policy answer there is judged answerable by the model.
+    offline_policy_allowed: bool = True

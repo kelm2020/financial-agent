@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any
+
+# Turn trace events that also go to the operational log: codes, section ids and scores only.
+_TRACE_EVENTS = frozenset(
+    {"source_selected", "policy_retrieval", "policy_answer", "response_outcome"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +51,12 @@ class TurnRecorder:
 
     def record_event(self, event_type: str, **payload: Any) -> None:
         self.events.append({"type": event_type, **payload})
+        if event_type in _TRACE_EVENTS:
+            # Codes, section ids and scores only. The same line goes to the recorder's log sink,
+            # so the PII invariant (INV-14) inspects it like every other operational log.
+            line = f"policy_trace {json.dumps({'type': event_type, **payload})}"
+            logging.getLogger(__name__).info(line)
+            self.record_log(line)
 
     def record_tool(self, name: str, **arguments: Any) -> None:
         # Safety transfers remain available after a dependency or budget failure. Counting the

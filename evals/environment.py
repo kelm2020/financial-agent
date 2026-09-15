@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import contextlib
+import json
 import time
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 import httpx
 from langgraph.checkpoint.memory import InMemorySaver
@@ -91,9 +94,16 @@ class EvidenceRetriever:
 
 
 class FaultTransport(httpx.AsyncBaseTransport):
+    """The mock backend in-process, with injected faults.
+
+    Every JSON body the agent received is kept: the independent figure oracle checks the visible
+    text against what the backend returned, never against the agent's own state.
+    """
+
     def __init__(self, faults: Sequence[FaultSpec]) -> None:
         self._inner = httpx.ASGITransport(app=mock_app)
         self._faults = tuple(faults)
+        self.payloads: list[Any] = []
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         fault = next(
@@ -105,13 +115,21 @@ class FaultTransport(httpx.AsyncBaseTransport):
             None,
         )
         if fault is None:
-            return await self._inner.handle_async_request(request)
+            return await self._forward(request)
         if fault.mode == "timeout_after_commit":
             response = await self._inner.handle_async_request(request)
             await response.aread()
             raise httpx.ReadTimeout("eval timeout after commit", request=request)
         request.headers["X-Mock-Fail"] = fault.mode
-        return await self._inner.handle_async_request(request)
+        return await self._forward(request)
+
+    async def _forward(self, request: httpx.Request) -> httpx.Response:
+        response = await self._inner.handle_async_request(request)
+        body = await response.aread()
+        # An empty or malformed body (an injected fault) carries nothing the agent could show.
+        with contextlib.suppress(ValueError):
+            self.payloads.append(json.loads(body))
+        return response
 
 
 def _settings() -> Settings:
@@ -139,6 +157,7 @@ class AgentSession:
     conversation_id: str
     customer_id: str
     observations: list[TurnObservation]
+    transport: FaultTransport
 
     async def send(self, text: str, *, advance_seconds: int = 0) -> TurnObservation:
         self.clock.advance(advance_seconds)
@@ -178,11 +197,17 @@ async def agent_session(
     evidence: Sequence[str] = (),
     setup: SetupSpec | None = None,
     retriever: Retriever | None = None,
+    offline_policy_allowed: bool | None = None,
 ) -> AsyncIterator[AgentSession]:
+    # With a model, policy is answered as in production: only what the model judged answerable.
+    # Without one (level A), the calibrated extract is the only policy path there is.
+    if offline_policy_allowed is None:
+        offline_policy_allowed = llm is None
     resolved = setup or SetupSpec()
     await idempotency_store.reset()
     settings = _settings()
-    client = httpx.AsyncClient(transport=FaultTransport(resolved.faults), base_url="http://mock")
+    transport = FaultTransport(resolved.faults)
+    client = httpx.AsyncClient(transport=transport, base_url="http://mock")
     recorder = TurnRecorder(
         max_tool_calls=resolved.max_tool_calls, max_llm_calls=resolved.max_llm_calls
     )
@@ -204,6 +229,7 @@ async def agent_session(
         retriever=retriever if retriever is not None else EvidenceRetriever(evidence, resolved.now),
         # The production system prompt: the published fingerprint must match what actually ran.
         system_prompt=load_system_prompt(),
+        offline_policy_allowed=offline_policy_allowed,
     )
     try:
         conversation = await service.create_conversation(customer_id)
@@ -215,6 +241,7 @@ async def agent_session(
             conversation_id=conversation.conversation_id,
             customer_id=customer_id,
             observations=[],
+            transport=transport,
         )
     finally:
         await client.aclose()
@@ -245,6 +272,7 @@ async def run_case(
         agreement = final_agreement(session)
         observations = tuple(session.observations)
         writes = tuple(session.recorder.agreement_writes)
+        payloads = tuple(session.transport.payloads)
     usage = llm.usage_records[usage_start:] if isinstance(llm, OpenAIResponsesLLM) else ()
     input_tokens = sum(item.input_tokens for item in usage)
     output_tokens = sum(item.output_tokens for item in usage)
@@ -271,4 +299,5 @@ async def run_case(
         output_tokens=output_tokens,
         cached_tokens=cached_tokens,
         cost_usd=cost,
+        backend_payloads=payloads,
     )

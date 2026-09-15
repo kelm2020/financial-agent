@@ -247,3 +247,27 @@ async def test_rerank_cache_script_covers_postgres_candidates(
     monkeypatch.setattr(build_rerank_cache, "reranker_client", live)
     await build_rerank_cache.run(settings, include_postgres=True)
     assert "Reranked 100 candidate lists" in capsys.readouterr().out
+
+
+async def test_policy_candidates_have_memory_postgres_parity(indexed: PgVectorHybridStore) -> None:
+    """Both stores hand the policy model the same number of candidates with the same recall.
+
+    k was chosen on dev without a reranker. On the test split that ranking still misses one
+    section inside k (R-02: "descuento" for POL-NEG-003), which the reranker fixes (ADR-011).
+    """
+    from app.graph.nodes.respond import POLICY_CANDIDATES
+
+    embeddings = cached_embeddings()
+    memory = InMemoryHybridStore()
+    await ingest_corpus(memory, embeddings, effective_on=REFERENCE_DATE)
+    left = build_retriever(memory, embeddings, offline_settings())
+    right = build_retriever(indexed, embeddings, offline_settings())
+    covered = {"memory": 0, "postgres": 0}
+    for case in load_retrieval_dataset("test").positive:
+        for name, retriever in (("memory", left), ("postgres", right)):
+            result = await retriever.search_for_generation(
+                case.query, effective_on=REFERENCE_DATE, limit=POLICY_CANDIDATES
+            )
+            assert len(result.hits) == POLICY_CANDIDATES
+            covered[name] += set(case.expected_section_ids) <= set(result.source_chunk_ids)
+    assert covered["memory"] == covered["postgres"]

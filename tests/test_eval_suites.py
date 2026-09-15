@@ -73,6 +73,7 @@ from tests.agent_support import (
     corpus_chunk,
     fixture_draft,
     offline_settings,
+    supported_check,
 )
 
 type Verdict = Literal["pass", "fail"]
@@ -376,11 +377,12 @@ async def test_agent_session_records_which_turns_the_model_wrote() -> None:
                     }
                 ],
             },
+            supported_check(),
         ]
     )
     async with agent_session("CUST-00125", llm=llm, evidence=("POL-NEG-003",)) as session:
         observation = await session.send("¿Qué quita existe?")
-    assert observation.llm_tasks == ("guard_classifier", "grounded_response")
+    assert observation.llm_tasks == ("guard_classifier", "grounded_response", "policy_answer_check")
     assert observation.model_authored
     assert observation.text == f"{sentence} [POL-NEG-003]"
     case = _case("F-01__mundial")
@@ -388,15 +390,19 @@ async def test_agent_session_records_which_turns_the_model_wrote() -> None:
     assert metrics.model_answers_accepted == Rate(numerator=1, denominator=1)
 
 
-async def test_policy_non_answers_fall_back_to_a_cited_extract() -> None:
-    llm = ScriptedLLM(
-        [
-            GuardModelResult(),
-            {"text": "No sé.", "claims": []},
-            {"text": "No estoy seguro.", "claims": []},
-        ]
-    )
-    async with agent_session("CUST-00125", llm=llm, evidence=("POL-NEG-003",)) as session:
+async def test_policy_non_answers_fall_back_to_a_cited_extract_only_in_local_mode() -> None:
+    def non_answers() -> ScriptedLLM:
+        return ScriptedLLM(
+            [
+                GuardModelResult(),
+                {"text": "No sé.", "claims": []},
+                {"text": "No estoy seguro.", "claims": []},
+            ]
+        )
+
+    async with agent_session(
+        "CUST-00125", llm=non_answers(), evidence=("POL-NEG-003",), offline_policy_allowed=True
+    ) as session:
         observation = await session.send("¿Qué quita existe?")
     assert "intereses devengados" in observation.text.casefold()
     assert "[POL-NEG-003]" in observation.text
@@ -404,6 +410,12 @@ async def test_policy_non_answers_fall_back_to_a_cited_extract() -> None:
     case = _case("F-01__mundial")
     metrics = aggregate_metrics([case], [_single_turn(case, observation)])
     assert metrics.model_answers_accepted == Rate(numerator=0, denominator=1)
+
+    # A session with a model answers policy as production does: no unverified extract (ADR-011).
+    async with agent_session("CUST-00125", llm=non_answers(), evidence=("POL-NEG-003",)) as session:
+        production = await session.send("¿Qué quita existe?")
+    assert "[POL-NEG-003]" not in production.text
+    assert "request_human" in [tool.name for tool in production.tools]
 
 
 # --------------------------------------------------------------------- conversational judge

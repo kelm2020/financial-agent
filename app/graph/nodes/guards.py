@@ -258,6 +258,8 @@ ROUTER_INSTRUCTION = (
     "si, cada cuánto, cuándo se, por cuánto tiempo, quién puede, horarios, medios de pago), "
     "aunque mencione la deuda, un plan, una oferta o cuotas. Usá topic any salvo que sea sobre "
     "medios de pago.\n"
+    "- consulta_mixta: mezcla datos particulares u opciones concretas y políticas: "
+    "pedir aclaración.\n"
     "- pedido_humano: pide hablar con una persona.\n"
     "- saludo_despedida, fuera_de_dominio o ambiguo en los demás casos."
 )
@@ -334,8 +336,22 @@ async def resolve_guard_node(
         # The model router read an injection attempt as a request (e.g. for a person): a
         # restricted turn keeps only what the deterministic table decides.
         upgrade = {"route_result": deterministic}
+    resolved_route = upgrade.get("route_result", route)
+    source = (
+        "deflection"
+        if decision.verdict == "deflect"
+        else resolved_route.source
+        if isinstance(resolved_route, RouteResult)
+        else "clarification"
+    )
+    runtime.context.recorder.record_event(
+        "source_selected",
+        intent=getattr(resolved_route, "intent", "ambiguo"),
+        source=source,
+    )
     return {
         **upgrade,
+        "selected_source": source,
         "guard_verdict": decision.verdict,
         "guard_flags": list(decision.flags),
         "deflect_count": deflect_count,

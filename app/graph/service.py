@@ -136,6 +136,7 @@ class ConversationAgentService:
                 "guard_flags": [],
                 "response_plan": None,
                 "retrieved": [],
+                "selected_source": "",
                 "http_status": 200,
             }
             try:

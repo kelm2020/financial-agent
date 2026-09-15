@@ -25,6 +25,10 @@ class GroundedReply(BaseModel):
 
     text: str
     claims: tuple[GroundedClaim, ...]
+    # What the question asks that the material does not answer. Any entry is an abstention: a
+    # partial answer about payment conditions is worse than none (§7.4). The strict schema sent to
+    # the provider drops the default, so the model must always fill it.
+    unresolved_aspects: tuple[str, ...] = ()
 
 
 def plain_text(text: str) -> str:
@@ -73,7 +77,7 @@ def _canonical_sentence(sentence: str) -> str:
     return " ".join(detection_skeleton(CITATION_LABEL.sub(" ", sentence)).split()).strip(" .")
 
 
-def _quote_key(text: str) -> str:
+def quote_key(text: str) -> str:
     return " ".join(detection_skeleton(plain_text(text)).split()).strip(" .")
 
 
@@ -143,11 +147,11 @@ def quote_verified(quote: str, source: str, *, min_quote_words: int | None = Non
     least ``min_quote_words`` words, or is a whole statement of the source: a table row or list
     item ("Prejudicial: requiere operador.") is complete support even when it is shorter."""
     minimum = min_quote_words or guardrail_config().grounding_min_quote_words
-    key = _quote_key(quote)
+    key = quote_key(quote)
     if key not in " ".join(detection_skeleton(plain_text(source)).split()):
         return False
     return len(key.split()) >= minimum or key in {
-        _quote_key(sentence) for sentence in split_sentences(plain_text(source))
+        quote_key(sentence) for sentence in split_sentences(plain_text(source))
     }
 
 

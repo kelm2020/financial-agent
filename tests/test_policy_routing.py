@@ -9,7 +9,7 @@ import pytest
 from app.graph.routing import asks_policy, route_turn
 from app.guards.grounding import GroundedReply, plain_text, split_sentences
 from app.llm.protocol import ScriptedLLM
-from tests.agent_support import StaticRetriever, agent_runtime, corpus_chunk
+from tests.agent_support import StaticRetriever, agent_runtime, corpus_chunk, supported_check
 
 
 @pytest.mark.parametrize(
@@ -85,10 +85,10 @@ async def test_policy_question_takes_the_risk_of_the_answering_section() -> None
             "claims": [{"sentence": sentence, "section_id": "POL-NEG-008", "quote": sentence}],
         }
     )
-    llm = ScriptedLLM([reply])
+    llm = ScriptedLLM([reply, supported_check()])
     async with agent_runtime(
         llm=llm, retriever=StaticRetriever([corpus_chunk("POL-NEG-008")])
     ) as runtime:
         result = await _ask(runtime, "¿Qué pasa si no llego a pagar una cuota?")
-    assert [call.task for call in llm.calls] == ["grounded_response"]
+    assert [call.task for call in llm.calls] == ["grounded_response", "policy_answer_check"]
     assert result.text.endswith("[POL-NEG-008]")

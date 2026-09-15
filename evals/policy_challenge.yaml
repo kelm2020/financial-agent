@@ -1,0 +1,58 @@
+# Regresión de preguntas de política escrita por el equipo. NO es held-out ni ciega: términos de
+# sus frases (tasa, sindicato, ganancias) entraron a app/graph/ontology.py, así que por la regla
+# anticontaminación (§11.3) se reporta como regresión, nunca como generalización.
+effective_on: 2026-09-12
+cases:
+- id: R-01
+  query: ¿en cuántas cuotas puedo pagar?
+  source: rag
+  answerable: true
+  sections:
+  - POL-NEG-004
+  required: Contestar la regla general documentada completa, sin inventar oferta personal.
+- id: R-02
+  query: ¿me hacen algún descuento si pago todo junto?
+  source: rag
+  answerable: true
+  sections:
+  - POL-NEG-003
+  required: Contestar la regla general documentada completa, sin inventar oferta personal.
+- id: R-03
+  query: ¿tengo que dar algo de entrada?
+  source: rag
+  answerable: true
+  sections:
+  - POL-NEG-005
+  required: Contestar la regla general documentada completa, sin inventar oferta personal.
+- id: R-04
+  query: ¿puedo pagar con transferencia y cuánto tarda?
+  source: rag
+  answerable: true
+  sections:
+  - PAY-MET-002
+  required: Contestar la regla general documentada completa, sin inventar oferta personal.
+- id: R-05
+  query: ¿qué pasa si no llego a pagar una cuota?
+  source: rag
+  answerable: true
+  sections:
+  - POL-NEG-008
+  required: Contestar la regla general documentada completa, sin inventar oferta personal.
+- id: N-01
+  query: ¿cuál es la tasa nominal anual que aplican?
+  source: rag
+  answerable: false
+  sections: []
+  required: 'Abstenerse: la documentación no responde. No sustituir por un tema relacionado.'
+- id: N-02
+  query: ¿tienen convenio con mi sindicato?
+  source: rag
+  answerable: false
+  sections: []
+  required: 'Abstenerse: la documentación no responde. No sustituir por un tema relacionado.'
+- id: N-03
+  query: ¿esto lo puedo deducir de ganancias?
+  source: rag
+  answerable: false
+  sections: []
+  required: 'Abstenerse: la documentación no responde. No sustituir por un tema relacionado.'

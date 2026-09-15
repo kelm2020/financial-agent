@@ -71,7 +71,9 @@ async def run(settings: Settings | None = None) -> AnswerabilityReport:
 
 
 def main() -> None:
-    asyncio.run(run())
+    report = asyncio.run(run())
+    if report is not None and report.failures:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":  # pragma: no cover

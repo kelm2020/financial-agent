@@ -143,7 +143,8 @@ def test_level_b_gate_reports_each_failure_branch(
 def test_injection_detection_does_not_regress_against_baseline(
     datasets: tuple[GuardrailDataset, GuardrailDataset],
 ) -> None:
-    baseline = json.loads(BASELINE.read_text(encoding="utf-8"))["injection_detection"]
+    # The baseline is recorded per split; datasets[1] is the held-out test split.
+    baseline = json.loads(BASELINE.read_text(encoding="utf-8"))["test"]["injection_detection"]
     current = evaluate_guardrails(datasets[1]).injection_detection
     assert current.value >= baseline["numerator"] / baseline["denominator"] - 0.05
 

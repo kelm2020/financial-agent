@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from app.llm.openai_responses import OpenAIResponsesLLM
 from config.settings import get_settings
 from evals.environment import AgentSession, agent_session
+from evals.evaluators import unconfirmed_writes
 from evals.simulator import SimulationTurn, load_personas, simulate_conversation
 
 REPORTS_DIR = Path("evals/reports")
@@ -100,7 +101,8 @@ async def simulate(args: argparse.Namespace) -> SimulationReport:
                     for tool in observation.tools
                 )
                 writes = session.recorder.agreement_writes
-                unconfirmed = sum(not write.get("confirmation_event_id") for write in writes)
+                # The gate must have accepted the same draft with the same event (§11.2).
+                unconfirmed = unconfirmed_writes(writes, session.recorder.events)
             runs.append(
                 PersonaRun(
                     persona_id=persona.id,

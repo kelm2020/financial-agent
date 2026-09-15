@@ -255,21 +255,32 @@ def _stratified_control_id(*parts: str, split: Split) -> str:
         nonce += 1
 
 
-def calibration_sample(case: ExpandedCase, observation: CaseObservation) -> JudgeSample:
+def turn_sample(case: ExpandedCase, observation: CaseObservation, index: int) -> JudgeSample:
+    """The judge's view of one response: situation, the conversation before it, message, response.
+
+    Conditional criteria (vulnerability) apply only to the case's final response, which is the
+    situation the case declares; earlier turns are held to the general criteria.
+    """
     if len(case.turns) != len(observation.turns):
         raise ValueError(f"{case.id}: turn specification and observation lengths differ")
     history: list[str] = []
-    for turn, observed in zip(case.turns[:-1], observation.turns[:-1], strict=True):
+    for turn, observed in zip(case.turns[:index], observation.turns[:index], strict=True):
         history.extend((f"Cliente: {turn.user}", f"Asistente: {observed.text}"))
-    response = observation.turns[-1].text
+    response = observation.turns[index].text
+    final = index == len(case.turns) - 1
     return JudgeSample(
+        # The ID of a final response is the one the human label files were written with.
         id=_opaque_id("real", case.id, response),
         situation=case.situation or case.title,
         conversation="\n".join(history),
-        user=case.turns[-1].user,
+        user=case.turns[index].user,
         response=response,
-        criteria=case.expect.judge_criteria,
+        criteria=case.expect.judge_criteria if final else GENERAL_CRITERIA,
     )
+
+
+def calibration_sample(case: ExpandedCase, observation: CaseObservation) -> JudgeSample:
+    return turn_sample(case, observation, len(observation.turns) - 1)
 
 
 def observation_record(observation: CaseObservation) -> dict[str, object]:

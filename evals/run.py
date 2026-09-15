@@ -3,22 +3,24 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import json
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from app.graph.nodes.guards import GUARD_CLASSIFIER_PROMPT
+from app.graph.nodes.guards import GUARD_CLASSIFIER_PROMPT, ROUTER_INSTRUCTION
 from app.graph.nodes.respond import GROUNDED_INSTRUCTION
 from app.llm.openai_responses import OpenAIResponsesLLM
 from app.llm.protocol import LLMClient
 from app.prompts import SYSTEM_PROMPT_PATH
+from app.rag.support import ANSWER_INSTRUCTION
 from config.settings import get_settings
 from evals.dataset import DATASETS, DatasetName, load_cases
 from evals.environment import run_case
 from evals.evaluators import aggregate_metrics, evaluate_case
 from evals.judge import JudgeSample, JudgeVerdicts, judge_response
-from evals.judge_workflow import calibration_sample
+from evals.judge_workflow import turn_sample
 from evals.models import (
     ALL_CRITERIA,
     CaseObservation,
@@ -31,7 +33,20 @@ from evals.reporting import render_report, write_report
 from evals.variants import expand_cases
 
 REPORTS_DIR = Path(__file__).parent / "reports"
+BASELINES_PATH = Path(__file__).parent / "baselines.json"
 SAFETY_GATES = frozenset({"hallucinated_numbers", "unsafe_auto_action", "confirmation_bypass"})
+# §11.5: a drop in tool selection larger than this below the recorded baseline blocks a merge.
+F1_REGRESSION_TOLERANCE = 0.05
+
+
+def baseline_f1(suite: str, dataset: str) -> float | None:
+    """Recorded tool_selection_f1 for this suite and dataset, or None without a record."""
+    if not BASELINES_PATH.exists():
+        return None
+    entry = json.loads(BASELINES_PATH.read_text(encoding="utf-8")).get(f"{suite}:{dataset}")
+    return float(entry["tool_selection_f1"]) if entry else None
+
+
 ProgressCallback = Callable[[int, int, str, int, int, bool], None]
 
 
@@ -40,7 +55,9 @@ def _prompt_fingerprint() -> str:
         (
             SYSTEM_PROMPT_PATH.read_bytes(),
             GUARD_CLASSIFIER_PROMPT.encode(),
+            ROUTER_INSTRUCTION.encode(),
             GROUNDED_INSTRUCTION.encode(),
+            ANSWER_INSTRUCTION.encode(),
         )
     )
     return hashlib.sha256(material).hexdigest()[:16]
@@ -62,27 +79,36 @@ async def judge_quality(
     judge: LLMClient,
     metrics: EvalMetrics,
 ) -> EvalMetrics:
-    """Conversational quality of every final response. Reported, never a release gate (§11.5).
+    """Conversational quality of every response of every run. Reported, never a gate (§11.5).
 
-    Identical (situation, conversation, message, response) tuples are judged once, so k
-    repetitions of a template do not multiply cost."""
-    cache: dict[tuple[str, ...], JudgeVerdicts | None] = {}
+    Every turn is judged, not only the last one: a cold confirmation summary in turn 2 is as
+    visible to the customer as the final message. Identical (situation, conversation, message,
+    response, criteria) tuples are judged once, so k repetitions of a template do not multiply
+    cost."""
+    cache: dict[tuple[object, ...], JudgeVerdicts | None] = {}
     passed = judged = unjudged = 0
     by_criterion: dict[str, list[int]] = {criterion: [0, 0] for criterion in ALL_CRITERIA}
     for case, observed in zip(cases, observations, strict=True):
-        sample = calibration_sample(case, observed)
-        key = (sample.situation, sample.conversation, sample.user, sample.response)
-        if key not in cache:
-            cache[key] = await _judge_with_retry(judge, sample)
-        verdicts = cache[key]
-        if verdicts is None:
-            unjudged += 1
-            continue
-        judged += 1
-        passed += verdicts.acceptable(sample.criteria)
-        for criterion in sample.criteria:
-            by_criterion[criterion][0] += verdicts.verdict(criterion) == "pass"
-            by_criterion[criterion][1] += 1
+        for index in range(len(observed.turns)):
+            sample = turn_sample(case, observed, index)
+            key = (
+                sample.situation,
+                sample.conversation,
+                sample.user,
+                sample.response,
+                sample.criteria,
+            )
+            if key not in cache:
+                cache[key] = await _judge_with_retry(judge, sample)
+            verdicts = cache[key]
+            if verdicts is None:
+                unjudged += 1
+                continue
+            judged += 1
+            passed += verdicts.acceptable(sample.criteria)
+            for criterion in sample.criteria:
+                by_criterion[criterion][0] += verdicts.verdict(criterion) == "pass"
+                by_criterion[criterion][1] += 1
     return metrics.model_copy(
         update={
             "quality_judged": Rate(numerator=passed, denominator=judged),
@@ -166,6 +192,11 @@ async def evaluate(
     metrics = aggregate_metrics(run_cases, observations)
     if judge_llm is not None:
         metrics = await judge_quality(run_cases, observations, judge_llm, metrics)
+    baseline = baseline_f1(suite, dataset)
+    if baseline is not None and metrics.tool_selection_f1 < baseline - F1_REGRESSION_TOLERANCE:
+        metrics = metrics.model_copy(
+            update={"gate_failures": (*metrics.gate_failures, "tool_selection_f1_regression")}
+        )
     # §11.1: level A has no model, so the blind suite (language understanding) can only hold it to
     # the architectural guarantees. Live runs of the same suite use every gate.
     gate_profile: Literal["full", "safety"] = (

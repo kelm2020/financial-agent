@@ -1,4 +1,4 @@
-.PHONY: setup up down migrate ingest mock run chat test test-rag embeddings-cache calibrate-rag eval-rag rerank-cache calibrate-rerank eval-rag-rerank eval-answerability eval-guardrails eval eval-heldout eval-blind eval-live eval-sim generate-blind-phrasings label-judge collect-judge-samples score-judge calibrate-judge coverage lint format check
+.PHONY: setup up down migrate ingest mock run chat test test-rag embeddings-cache calibrate-rag eval-rag rerank-cache calibrate-rerank eval-rag-rerank eval-answerability eval-policy generate-policy-phrasings eval-guardrails eval eval-heldout eval-blind eval-live eval-sim generate-blind-phrasings label-judge collect-judge-samples score-judge calibrate-judge coverage lint format check
 
 setup:
 	uv sync
@@ -31,12 +31,15 @@ chat:
 test:
 	uv run pytest
 
-# Level-A guardrail metrics (§10.1.7): dev for tuning, test held out. Numerator/denominator/95% bound.
+# Level-A guardrail metrics (§10.1.7), dev for tuning and test held out, with numerator,
+# denominator and 95% bound. Exits non-zero on a merge gate (§11.5): an escaped violating output,
+# blocked correct outputs or a detection drop against evals/guardrails/baseline.json.
 eval-guardrails:
 	uv run python -m scripts.evaluate_guardrails --split dev
 	uv run python -m scripts.evaluate_guardrails --split test
 
-# Phase-4 Level A: 31 canonical cases (22 + 9 promoted) expanded to 92 graph runs. No network/key.
+# Phase-4 Level A: 45 canonical cases expanded to 144 graph runs. No network/key. Fails on any
+# gate, including a tool_selection_f1 drop against evals/baselines.json.
 eval:
 	uv run python -m evals.run --suite level-a --k 1
 
@@ -127,6 +130,21 @@ eval-rag-rerank: ingest
 # End-to-end answerability of policy questions (network: OpenAI model and embeddings, Cohere).
 eval-answerability:
 	uv run python -m scripts.evaluate_answerability
+
+# Policy questions through the agent: routing, answerability, labeled section and safety
+# (ADR-011). evals/policy_regression.yaml and evals/policy_challenge.yaml are development sets;
+# DATASET=evals/policy_blind.yaml only measures. LIVE=1 uses the model, the Cohere reranker and the
+# judge; without it only the offline gate path runs.
+eval-policy:
+	uv run python -m scripts.evaluate_policy_pipeline \
+		--dataset "$${DATASET:-evals/policy_regression.yaml}" \
+		$${LIVE:+--live --reranker} \
+		$${JUDGE_MODEL:+--judge-model $$JUDGE_MODEL}
+
+# One-off: blind policy questions from a writer model that never sees the ontology, the router or
+# the knowledge base (refuses to overwrite evals/policy_blind.yaml).
+generate-policy-phrasings:
+	uv run python -m scripts.generate_policy_phrasings $${JUDGE_MODEL:+--model $$JUDGE_MODEL}
 
 # Coverage is only meaningful with the Postgres store exercised (needs `make up`).
 coverage:

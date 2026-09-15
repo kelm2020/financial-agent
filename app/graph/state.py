@@ -24,6 +24,7 @@ from app.tools.schemas import (
 Intent = Literal[
     "consulta_deuda",
     "consulta_general",
+    "consulta_mixta",
     "negociacion",
     "aceptar_opcion",
     "fuera_de_dominio",
@@ -45,6 +46,21 @@ class RouteResult(BaseModel):
     escalation_motivo: EscalationMotivo | None = None
     # Monthly amount the customer said they can pay, in answer to "¿cuánto podrías pagar?".
     monthly_amount: int | None = None
+
+    @property
+    def source(self) -> str:
+        return {
+            "consulta_deuda": "backend",
+            "negociacion": "backend",
+            "aceptar_opcion": "action",
+            "consulta_general": "rag",
+            "pedido_humano": "escalation",
+            "fuera_de_dominio": "deflection",
+            "consulta_mixta": "clarification",
+            "ambiguo": "clarification",
+            "saludo_despedida": "conversation",
+            "rechaza_oferta": "conversation",
+        }[self.intent]
 
 
 class ConfirmationVerdict(BaseModel):
@@ -127,6 +143,8 @@ class AgentState(TypedDict, total=False):
     guard_flags: list[GuardFlag]
     deflect_count: int
 
+    # Which source the turn was routed to (backend, rag, action, escalation…), for traces and evals.
+    selected_source: str
     retrieved: list[SearchHit]
     response_plan: ResponsePlan | None
     agreement_status: AgreementStatus

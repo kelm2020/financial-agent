@@ -14,7 +14,7 @@ from app.guards.grounding import (
 )
 from app.llm.protocol import ScriptedLLM
 from app.rag.models import RetrievalResult
-from tests.agent_support import StaticRetriever, agent_runtime, corpus_chunk
+from tests.agent_support import StaticRetriever, agent_runtime, corpus_chunk, supported_check
 
 _EMPTY = GroundedReply(text="", claims=())
 
@@ -152,7 +152,17 @@ async def test_a_faithful_answer_may_use_the_words_of_its_section_heading() -> N
             ],
         }
     )
-    llm = ScriptedLLM([reply])
+    from app.rag.support import AnswerSupportDecision
+
+    # A paraphrase is shown only after the semantic check supports it (ADR-011).
+    check = AnswerSupportDecision(
+        answers_question=True,
+        supported_claim_indices=(0,),
+        unsupported_claim_indices=(),
+        unresolved_aspects=(),
+        reason="supported",
+    )
+    llm = ScriptedLLM([reply, check])
     retriever = BelowGateRetriever([corpus_chunk("FAQ-010")])
     async with agent_runtime(llm=llm, retriever=retriever) as runtime:
         result = await _ask(runtime, "¿puede pagar un familiar por mí?")
@@ -176,7 +186,7 @@ async def test_restated_claims_are_dropped_from_the_answer() -> None:
             ],
         }
     )
-    llm = ScriptedLLM([reply])
+    llm = ScriptedLLM([reply, supported_check(2)])
     retriever = StaticRetriever([corpus_chunk("FAQ-001"), corpus_chunk("POL-NEG-006")])
     async with agent_runtime(llm=llm, retriever=retriever) as runtime:
         result = await _ask(runtime, "¿Puedo pagar una parte de la deuda?")
@@ -217,7 +227,8 @@ async def test_answer_keeps_the_answering_section_and_drops_unrelated_ones() -> 
     retriever = StaticRetriever(
         [corpus_chunk("FAQ-003"), corpus_chunk("PAY-MET-005"), corpus_chunk("POL-NEG-009")]
     )
-    async with agent_runtime(llm=ScriptedLLM([reply]), retriever=retriever) as runtime:
+    llm = ScriptedLLM([reply, supported_check(2)])
+    async with agent_runtime(llm=llm, retriever=retriever) as runtime:
         result = await _ask(runtime, "¿Puedo cambiar la fecha de vencimiento de una cuota?")
     assert result.text == f"{first} {second} [FAQ-003]"
     assert {
@@ -279,7 +290,8 @@ async def test_a_claim_saying_what_another_section_says_is_dropped_not_blocked()
     )
     reply = _claims((good, "FAQ-003", good), (borrowed, "FAQ-003", good))
     retriever = StaticRetriever([corpus_chunk("FAQ-003")])
-    async with agent_runtime(llm=ScriptedLLM([reply]), retriever=retriever) as runtime:
+    llm = ScriptedLLM([reply, supported_check()])
+    async with agent_runtime(llm=llm, retriever=retriever) as runtime:
         result = await _ask(runtime, "¿Puedo cambiar la fecha de vencimiento de una cuota?")
     assert result.text == f"{good} [FAQ-003]"
     trimmed = [event for event in runtime.recorder.events if event["type"] == "claims_trimmed"]

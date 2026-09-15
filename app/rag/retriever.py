@@ -84,21 +84,22 @@ class PolicyRetriever:
         the dense leg's nearest neighbour is always a candidate, so the evidence equals the
         best similarity in the index regardless of how each store ranks the lexical leg.
         """
+        candidate_limit = max(self._candidate_limit, limit)
         vectors = await self._embeddings.embed([query])
         fused = await self._store.search(
             query,
             vectors[0],
             topic=topic,
             effective_on=effective_on,
-            limit=2 * self._candidate_limit,
-            candidate_limit=self._candidate_limit,
+            limit=2 * candidate_limit,
+            candidate_limit=candidate_limit,
             rrf_k=self._rrf_k,
         )
         evidence = dense_evidence(fused)
         best_rrf = fused[0].rrf_score if fused else 0.0
         if self._reranker is None:
             return Retrieval(hits=fused[:limit], evidence=evidence, best_rrf=best_rrf)
-        reranked = await self._reranker.rerank(query, fused[: self._candidate_limit])
+        reranked = await self._reranker.rerank(query, fused[:candidate_limit])
         return Retrieval(hits=reranked[:limit], evidence=evidence, best_rrf=best_rrf)
 
     async def search(

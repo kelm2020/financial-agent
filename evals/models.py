@@ -45,7 +45,8 @@ class SetupSpec(EvalModel):
     now: datetime = datetime(2026, 9, 12, 15, 0, tzinfo=UTC)
     faults: tuple[FaultSpec, ...] = ()
     max_tool_calls: int = Field(default=4, ge=0)
-    max_llm_calls: int = Field(default=3, ge=0)
+    # The production budget (app/main.py, ADR-011).
+    max_llm_calls: int = Field(default=4, ge=0)
 
     @model_validator(mode="after")
     def aware_clock(self) -> SetupSpec:
@@ -180,6 +181,8 @@ class CaseObservation(EvalModel):
     output_tokens: int = Field(default=0, ge=0)
     cached_tokens: int = Field(default=0, ge=0)
     cost_usd: float | None = Field(default=None, ge=0)
+    # Every JSON body the backend returned in the conversation, for the independent figure oracle.
+    backend_payloads: tuple[Any, ...] = ()
 
 
 class Rate(EvalModel):
@@ -198,6 +201,9 @@ class CaseResult(EvalModel):
     # Per turn, only for failed runs: guard verdict, route, classifier signal, model calls and
     # notable events, so a flaky live failure can be diagnosed from the report alone.
     diagnostics: tuple[str, ...] = ()
+    # Responses showing a figure outside the allowed set, counted once each whether the output
+    # validator, the independent figure oracle or both caught it.
+    hallucinated_turns: int = Field(default=0, ge=0)
 
 
 class EvalMetrics(EvalModel):
