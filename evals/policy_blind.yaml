@@ -8,35 +8,35 @@
 effective_on: '2026-09-12'
 cases:
 - id: S-61:b1
-  query: Si decido abonar todo el monto de una sola vez, ¿me harían alguna rebaja?
+  query: Si decido saldar la deuda de una sola vez, ¿me aplican algún precio más bajo?
   source: rag
   answerable: true
   sections:
   - POL-NEG-003
   required: Reducción sólo de intereses y sólo en un pago único, según el segmento.
 - id: S-61:b2
-  query: Hay alguna chance de que me descuenten algo si cancelo la deuda completa ya?
+  query: ¿Hay alguna ventaja o reducción si pago todo lo que debo en este momento?
   source: rag
   answerable: true
   sections:
   - POL-NEG-003
   required: Reducción sólo de intereses y sólo en un pago único, según el segmento.
 - id: S-62:b1
-  query: Para financiar en cuotas, ¿es necesario hacer un pago inicial primero?
+  query: Para empezar a pagar en cuotas, tengo que poner algo de guita al principio?
   source: rag
   answerable: true
   sections:
   - POL-NEG-005
   required: Entrega inicial desde cierta cantidad de cuotas y porcentaje según la mora.
 - id: S-62:b2
-  query: Quería saber si tengo que adelantar plata para empezar con las cuotas.
+  query: Me pueden decir si hay que hacer un primer pago antes de arrancar con las cuotas?
   source: rag
   answerable: true
   sections:
   - POL-NEG-005
   required: Entrega inicial desde cierta cantidad de cuotas y porcentaje según la mora.
 - id: S-63:b1
-  query: Puedo ir pagando un monto más chico sin armar ningún plan formal?
+  query: ¿Se podrá pagar una parte nada más sin tener que firmar ningún plan?
   source: rag
   answerable: true
   sections:
@@ -44,7 +44,7 @@ cases:
   - POL-NEG-006
   required: Pago parcial desde un mínimo del saldo; no reemplaza un acuerdo.
 - id: S-63:b2
-  query: Si abono solo una parte ahora, después puedo seguir pagando sin convenio?
+  query: Si abono solo un monto parcial, ¿me lo toman igual o necesito hacer algún acuerdo formal?
   source: rag
   answerable: true
   sections:
@@ -52,50 +52,50 @@ cases:
   - POL-NEG-006
   required: Pago parcial desde un mínimo del saldo; no reemplaza un acuerdo.
 - id: S-64:b1
-  query: ¿Se puede cambiar la fecha límite para pagar la cuota de este mes?
+  query: Hola, hay forma de cambiar la fecha de vencimiento de mi próxima cuota?
   source: rag
   answerable: true
   sections:
   - FAQ-003
   required: El canal automático no cambia fechas; lo evalúa un operador con anticipación.
 - id: S-64:b2
-  query: ¿Hay chance de posponer el vencimiento de la cuota sin problema?
+  query: Quería saber si puedo pasar el pago de la cuota para después sin que me compliquen.
   source: rag
   answerable: true
   sections:
   - FAQ-003
   required: El canal automático no cambia fechas; lo evalúa un operador con anticipación.
 - id: S-65:b1
-  query: Disculpame, si hago el pago por cajero automático, ¿cuánto demora en acreditarse en mi cuenta?
+  query: ¿Cuánto tiempo tarda en reflejarse un pago si lo hago con tarjeta de crédito?
   source: rag
   answerable: true
   sections:
   - PAY-MET-002
   required: Plazos de acreditación por medio de pago.
 - id: S-65:b2
-  query: Quería saber, si deposito el dinero en efectivo directo en sucursal, ¿cuándo aparece reflejado
-    el pago?
+  query: Si hago el pago por débito automático, ¿cuándo lo veo actualizado en mi cuenta?
   source: rag
   answerable: true
   sections:
   - PAY-MET-002
   required: Plazos de acreditación por medio de pago.
 - id: S-66:b1
-  query: Hola, ¿puedo abonar usando alguna cripto, tipo bitcoin o ethereum?
+  query: ¿Se puede pagar usando criptomonedas tipo bitcoin o alguna otra moneda digital?
   source: rag
   answerable: true
   sections:
   - PAY-MET-003
   required: Medios no habilitados.
 - id: S-66:b2
-  query: ¿Me aceptan un cheque que no es mío para saldar una parte de la deuda?
+  query: ¿Aceptan un cheque que no sea mío para abonar parte de la deuda?
   source: rag
   answerable: true
   sections:
   - PAY-MET-003
   required: Medios no habilitados.
 - id: S-67:b1
-  query: Si empiezo un plan de pagos y después me atraso con una cuota, qué consecuencias tengo?
+  query: Si armo un plan de pago y después me pateo una cuota, me generan intereses o me suspenden el
+    plan?
   source: rag
   answerable: true
   sections:
@@ -103,8 +103,8 @@ cases:
   - FAQ-004
   required: Caída del plan por una cuota impaga y sus consecuencias.
 - id: S-67:b2
-  query: Armé un plan de pago, pero si no pago una cuota, ¿me generan multas o me cancelan el acuerdo
-    automáticamente?
+  query: En caso que no pueda pagar una cuota del plan que armé, me cortan el beneficio o sigue vigente
+    igual?
   source: rag
   answerable: true
   sections:
@@ -112,7 +112,7 @@ cases:
   - FAQ-004
   required: Caída del plan por una cuota impaga y sus consecuencias.
 - id: S-68:b1
-  query: La oferta de pago que me mandaron, ¿es fija o hay fecha límite para aceptarla?
+  query: Che, me podés decir hasta cuándo está vigente esa propuesta de pago que me dieron?
   source: rag
   answerable: true
   sections:
@@ -120,7 +120,7 @@ cases:
   - FAQ-012
   required: Vigencia general de las ofertas, sin inventar una fecha particular.
 - id: S-68:b2
-  query: Quería saber hasta cuándo puedo aprovechar la propuesta que me hicieron para saldar la deuda.
+  query: Esa oferta que me mandaron, tiene fecha de vencimiento o la puedo tomar cuando quiera?
   source: rag
   answerable: true
   sections:
@@ -128,50 +128,52 @@ cases:
   - FAQ-012
   required: Vigencia general de las ofertas, sin inventar una fecha particular.
 - id: N-61:b1
-  query: Si ya pagué parte de la deuda, eso me ayuda a pagar menos impuestos o no influye?
+  query: Si ya hice un pago parcial de la deuda, eso me reduce algo de los impuestos que tengo que pagar?
   source: rag
   answerable: false
   sections: []
   required: 'Abstenerse: no hay política impositiva.'
 - id: N-61:b2
-  query: Quería saber si el pago que hice cuenta para reducir la carga impositiva.
+  query: Sirve que vaya abonando la deuda para bajar la cantidad que debo tributar en impuestos?
   source: rag
   answerable: false
   sections: []
   required: 'Abstenerse: no hay política impositiva.'
 - id: N-62:b1
-  query: ¿Me podés decir cuál es el interés anual que aplican si elijo financiar la deuda?
+  query: Buen día, me podrías informar cuál es la tasa de interés que me estarían cobrando al año si decido
+    financiar la deuda?
   source: rag
   answerable: false
   sections: []
   required: 'Abstenerse: no hay tasa anual documentada.'
 - id: N-62:b2
-  query: ¿Quería saber cuál es el CFT para un plan de pagos, para calcular bien cuánto voy a terminar
-    pagando.
+  query: ¿Me podrían confirmar cuál es el Costo Financiero Total para un plan de pagos? Quiero asegurarme
+    cuánto terminaré abonando realmente.
   source: rag
   answerable: false
   sections: []
   required: 'Abstenerse: no hay tasa anual documentada.'
 - id: N-63:b1
-  query: Hola, para hacer una transferencia, ¿me cobran comisión?
+  query: Che, me cobran comisión si hago el pago con transferencia?
   source: rag
   answerable: false
   sections: []
   required: 'Abstenerse: no hay comisiones documentadas.'
 - id: N-63:b2
-  query: Si paso la plata por transferencia, ¿hay algún cargo extra?
+  query: Si mando la plata por transferencia, cuánto me cobran aparte?
   source: rag
   answerable: false
   sections: []
   required: 'Abstenerse: no hay comisiones documentadas.'
 - id: N-64:b1
-  query: ¿Se podrá hacer el pago con dólares o alguna moneda extranjera?
+  query: Hola, podria pagar la deuda usando dolares o alguna otra moneda extranjera? Como funciona eso?
   source: rag
   answerable: false
   sections: []
   required: 'Abstenerse: no se documenta pago en moneda extranjera.'
 - id: N-64:b2
-  query: ¿Aceptan que abone la deuda en otra moneda que no sea pesos?
+  query: Queria consultar si el pago puede hacerse en moneda extranjera, por ejemplo euros, y como se
+    reflejaria el cambio.
   source: rag
   answerable: false
   sections: []

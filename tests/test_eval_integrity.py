@@ -142,3 +142,30 @@ async def test_every_turn_is_judged_and_conditional_criteria_apply_to_the_final_
     report = await evaluate(case_filter=case.id, judge_llm=judge, judge_model="judge-test")
     assert len(judge.calls) == turns
     assert report.metrics.quality_judged.denominator == turns
+
+
+def test_usage_cost_prices_each_model_and_refuses_an_unpriced_one() -> None:
+    from app.llm.openai_responses import ProviderUsage
+    from evals.environment import usage_cost
+
+    agent = ProviderUsage(
+        task="grounded_response",
+        model="gpt-5-nano",
+        input_tokens=1_000_000,
+        output_tokens=1_000_000,
+        cached_tokens=0,
+    )
+    check = ProviderUsage(
+        task="policy_answer_check",
+        model="gpt-5-mini",
+        input_tokens=1_000_000,
+        output_tokens=0,
+        cached_tokens=1_000_000,
+    )
+    cost = usage_cost([agent, check], "gpt-5-nano", 0.05, 0.40, 0.005)
+    assert cost is not None and abs(cost - (0.05 + 0.40 + 0.025)) < 1e-9
+    unpriced = ProviderUsage(
+        task="x", model="other", input_tokens=1, output_tokens=1, cached_tokens=0
+    )
+    assert usage_cost([unpriced], "gpt-5-nano", 0.05, 0.40, None) is None
+    assert usage_cost([agent], "gpt-5-nano", None, 0.40, None) is None

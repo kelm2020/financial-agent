@@ -27,4 +27,35 @@ cases:
   - {id: H21, query: "Necesito hablar con un asesor, ¿además dan descuentos?", source: escalation, answerable: false, sections: [], required: "Derivación prioritaria, sin retrieval."}
   - {id: H22, query: "Estoy sin laburo, ¿hay una rebaja para cancelar?", source: escalation, answerable: false, sections: [], required: "Vulnerabilidad prioritaria."}
   - {id: H23, query: "¿Cuál es la tasa efectiva anual si tomo ese convenio?", source: rag, answerable: false, sections: [], required: "No calcular TEA a partir del recargo."}
-  - {id: H24, query: "¿Me toman una parte y eliminan el resto de la deuda?", source: rag, answerable: false, sections: [], required: "No afirmar condonación del resto por pago parcial."}
+  # H24 re-etiquetada (ADR-011): FAQ-001 contesta las dos partes, "desde el 10 % del saldo total" y
+  # "el pago parcial … no otorga quita"; lo que no puede hacer la respuesta es afirmar la condonación.
+  - {id: H24, query: "¿Me toman una parte y eliminan el resto de la deuda?", source: rag, answerable: true, sections: [FAQ-001, POL-NEG-006], required: "Pago parcial desde el 10 %; no otorga quita ni elimina el resto."}
+  # Promovidas desde evals/policy_blind.yaml (gpt-4.1-mini-2025-04-14, 2026-09-15). Once frases
+  # mal ruteadas motivaron familias morfológicas en app/graph/ontology.py y la excepción de
+  # medios de pago en app/graph/routing.py (ADR-011): el set entero dejó de ser ciego.
+  - {id: "S-61:b1", query: "Si decido abonar todo el monto de una sola vez, ¿me harían alguna rebaja?", source: rag, answerable: true, sections: [POL-NEG-003], required: "Reducción sólo de intereses y sólo en un pago único, según el segmento."}
+  - {id: "S-61:b2", query: "Hay alguna chance de que me descuenten algo si cancelo la deuda completa ya?", source: rag, answerable: true, sections: [POL-NEG-003], required: "Reducción sólo de intereses y sólo en un pago único, según el segmento."}
+  - {id: "S-62:b1", query: "Para financiar en cuotas, ¿es necesario hacer un pago inicial primero?", source: rag, answerable: true, sections: [POL-NEG-005], required: "Entrega inicial desde cierta cantidad de cuotas y porcentaje según la mora."}
+  - {id: "S-62:b2", query: "Quería saber si tengo que adelantar plata para empezar con las cuotas.", source: rag, answerable: true, sections: [POL-NEG-005], required: "Entrega inicial desde cierta cantidad de cuotas y porcentaje según la mora."}
+  - {id: "S-63:b1", query: "Puedo ir pagando un monto más chico sin armar ningún plan formal?", source: rag, answerable: true, sections: [FAQ-001, POL-NEG-006], required: "Pago parcial desde un mínimo del saldo; no reemplaza un acuerdo."}
+  - {id: "S-63:b2", query: "Si abono solo una parte ahora, después puedo seguir pagando sin convenio?", source: rag, answerable: true, sections: [FAQ-001, POL-NEG-006], required: "Pago parcial desde un mínimo del saldo; no reemplaza un acuerdo."}
+  - {id: "S-64:b1", query: "¿Se puede cambiar la fecha límite para pagar la cuota de este mes?", source: rag, answerable: true, sections: [FAQ-003], required: "El canal automático no cambia fechas; lo evalúa un operador con anticipación."}
+  - {id: "S-64:b2", query: "¿Hay chance de posponer el vencimiento de la cuota sin problema?", source: rag, answerable: true, sections: [FAQ-003], required: "El canal automático no cambia fechas; lo evalúa un operador con anticipación."}
+  # S-65:b1 re-etiquetada al pasar a desarrollo: PAY-MET-002 no lista el cajero automático, así que
+  # la situación de su escritor no aplica a esta frase (ADR-011).
+  - {id: "S-65:b1", query: "Disculpame, si hago el pago por cajero automático, ¿cuánto demora en acreditarse en mi cuenta?", source: rag, answerable: false, sections: [], required: "Abstenerse: el cajero automático no es un medio documentado."}
+  - {id: "S-65:b2", query: "Quería saber, si deposito el dinero en efectivo directo en sucursal, ¿cuándo aparece reflejado el pago?", source: rag, answerable: true, sections: [PAY-MET-002], required: "Plazos de acreditación por medio de pago."}
+  - {id: "S-66:b1", query: "Hola, ¿puedo abonar usando alguna cripto, tipo bitcoin o ethereum?", source: rag, answerable: true, sections: [PAY-MET-003], required: "Medios no habilitados."}
+  - {id: "S-66:b2", query: "¿Me aceptan un cheque que no es mío para saldar una parte de la deuda?", source: rag, answerable: true, sections: [PAY-MET-003], required: "Medios no habilitados."}
+  - {id: "S-67:b1", query: "Si empiezo un plan de pagos y después me atraso con una cuota, qué consecuencias tengo?", source: rag, answerable: true, sections: [POL-NEG-008, FAQ-004], required: "Caída del plan por una cuota impaga y sus consecuencias."}
+  - {id: "S-67:b2", query: "Armé un plan de pago, pero si no pago una cuota, ¿me generan multas o me cancelan el acuerdo automáticamente?", source: rag, answerable: true, sections: [POL-NEG-008, FAQ-004], required: "Caída del plan por una cuota impaga y sus consecuencias."}
+  - {id: "S-68:b1", query: "La oferta de pago que me mandaron, ¿es fija o hay fecha límite para aceptarla?", source: rag, answerable: true, sections: [POL-NEG-007, FAQ-012], required: "Vigencia general de las ofertas, sin inventar una fecha particular."}
+  - {id: "S-68:b2", query: "Quería saber hasta cuándo puedo aprovechar la propuesta que me hicieron para saldar la deuda.", source: rag, answerable: true, sections: [POL-NEG-007, FAQ-012], required: "Vigencia general de las ofertas, sin inventar una fecha particular."}
+  - {id: "N-61:b1", query: "Si ya pagué parte de la deuda, eso me ayuda a pagar menos impuestos o no influye?", source: rag, answerable: false, sections: [], required: "Abstenerse: no hay política impositiva."}
+  - {id: "N-61:b2", query: "Quería saber si el pago que hice cuenta para reducir la carga impositiva.", source: rag, answerable: false, sections: [], required: "Abstenerse: no hay política impositiva."}
+  - {id: "N-62:b1", query: "¿Me podés decir cuál es el interés anual que aplican si elijo financiar la deuda?", source: rag, answerable: false, sections: [], required: "Abstenerse: no hay tasa anual documentada."}
+  - {id: "N-62:b2", query: "¿Quería saber cuál es el CFT para un plan de pagos, para calcular bien cuánto voy a terminar pagando.", source: rag, answerable: false, sections: [], required: "Abstenerse: no hay tasa anual documentada."}
+  - {id: "N-63:b1", query: "Hola, para hacer una transferencia, ¿me cobran comisión?", source: rag, answerable: false, sections: [], required: "Abstenerse: no hay comisiones documentadas."}
+  - {id: "N-63:b2", query: "Si paso la plata por transferencia, ¿hay algún cargo extra?", source: rag, answerable: false, sections: [], required: "Abstenerse: no hay comisiones documentadas."}
+  - {id: "N-64:b1", query: "¿Se podrá hacer el pago con dólares o alguna moneda extranjera?", source: rag, answerable: false, sections: [], required: "Abstenerse: no se documenta pago en moneda extranjera."}
+  - {id: "N-64:b2", query: "¿Aceptan que abone la deuda en otra moneda que no sea pesos?", source: rag, answerable: false, sections: [], required: "Abstenerse: no se documenta pago en moneda extranjera."}

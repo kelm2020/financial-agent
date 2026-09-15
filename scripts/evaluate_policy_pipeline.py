@@ -24,7 +24,7 @@ from typing import Any
 import yaml  # type: ignore[import-untyped]
 
 from app.guards.grounding import CITATION_LABEL
-from app.llm.openai_responses import OpenAIResponsesLLM
+from app.llm.openai_responses import OpenAIResponsesLLM, build_agent_llm
 from app.rag.factory import (
     EMBEDDING_CACHE_PATH,
     RERANK_CACHE_PATH,
@@ -112,6 +112,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         "mode": "live" if args.live else "offline",
         "reranker": args.reranker,
         "agent_model": settings.openai_agent_model if args.live else None,
+        "check_model": settings.openai_check_model if args.live else None,
         "judge_model": args.judge_model if args.live else None,
         "cases": [],
     }
@@ -137,11 +138,11 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             if args.judge_model == settings.openai_agent_model:
                 raise ValueError("The judge must use a different model than the agent")
             key = settings.openai_api_key.get_secret_value()
-            llm = OpenAIResponsesLLM(
+            llm = build_agent_llm(
                 api_key=key,
                 model=settings.openai_agent_model,
+                check_model=settings.openai_check_model,
                 max_output_tokens=4000,
-                reasoning_effort="low",
                 timeout_seconds=45,
             )
             stack.push_async_callback(llm.aclose)
@@ -214,7 +215,11 @@ async def _evaluate_case(
                 ),
             )
             row["judge"] = judgment.model_dump()
-            passed = passed and judgment.verdict("responde_lo_pedido") == "pass"
+            # The criterion judges a policy answer. A deflection or a derivation does not answer by
+            # design; route, tools and safety already score those rows (ADR-011).
+            passed = passed and (
+                case["source"] != "rag" or judgment.verdict("responde_lo_pedido") == "pass"
+            )
         row["semantic_checked"] = judge is not None
         row["passed"] = passed
     except Exception as exc:

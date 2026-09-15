@@ -19,7 +19,7 @@ from app.graph.persistence import checkpoint_serializer
 from app.graph.recorder import TurnRecorder
 from app.graph.service import ConversationAgentService
 from app.guards.output import OutputValidator
-from app.llm.openai_responses import OpenAIResponsesLLM
+from app.llm.openai_responses import OpenAIResponsesLLM, ProviderUsage
 from app.llm.protocol import LLMClient
 from app.prompts import load_system_prompt
 from app.rag.corpus import load_corpus
@@ -39,6 +39,44 @@ from evals.models import (
 from mock_api.auth import issue_token
 from mock_api.idempotency_store import idempotency_store
 from mock_api.main import app as mock_app
+
+# List prices per million tokens (input, cached input, output) of models a run uses besides the
+# agent model, which the CLI prices. A usage record of a model without a price leaves the cost
+# unreported instead of billing it at the agent's price.
+MODEL_PRICES_PER_MILLION: dict[str, tuple[float, float, float]] = {
+    "gpt-5-mini": (0.25, 0.025, 2.00),
+}
+
+
+def usage_cost(
+    usage: Sequence[ProviderUsage],
+    agent_model: str,
+    input_cost_per_million: float | None,
+    output_cost_per_million: float | None,
+    cached_cost_per_million: float | None,
+) -> float | None:
+    """USD of a run's provider calls. The CLI prices the agent model and MODEL_PRICES_PER_MILLION
+    every other one, such as the policy answer check (ADR-011)."""
+    if input_cost_per_million is None or output_cost_per_million is None:
+        return None
+    cached_rate = (
+        input_cost_per_million if cached_cost_per_million is None else cached_cost_per_million
+    )
+    rates = {
+        **MODEL_PRICES_PER_MILLION,
+        agent_model: (input_cost_per_million, cached_rate, output_cost_per_million),
+    }
+    if any(item.model not in rates for item in usage):
+        return None
+    return (
+        sum(
+            (item.input_tokens - item.cached_tokens) * rates[item.model][0]
+            + item.cached_tokens * rates[item.model][1]
+            + item.output_tokens * rates[item.model][2]
+            for item in usage
+        )
+        / 1_000_000
+    )
 
 
 class MutableClock:
@@ -277,18 +315,13 @@ async def run_case(
     input_tokens = sum(item.input_tokens for item in usage)
     output_tokens = sum(item.output_tokens for item in usage)
     cached_tokens = sum(item.cached_tokens for item in usage)
-    cost = None
-    if input_cost_per_million is not None and output_cost_per_million is not None:
-        cached_rate = (
-            cached_cost_per_million
-            if cached_cost_per_million is not None
-            else input_cost_per_million
-        )
-        cost = (
-            (input_tokens - cached_tokens) * input_cost_per_million
-            + cached_tokens * cached_rate
-            + output_tokens * output_cost_per_million
-        ) / 1_000_000
+    cost = usage_cost(
+        usage,
+        llm.model if isinstance(llm, OpenAIResponsesLLM) else "",
+        input_cost_per_million,
+        output_cost_per_million,
+        cached_cost_per_million,
+    )
     return CaseObservation(
         case_id=case.id,
         turns=observations,

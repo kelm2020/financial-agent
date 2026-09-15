@@ -13,6 +13,7 @@ from app.llm.openai_responses import (
     OpenAIResponseError,
     OpenAIResponsesLLM,
     _strict_json_schema,
+    build_agent_llm,
 )
 
 
@@ -162,3 +163,54 @@ def test_strict_schema_recurses_and_drops_defaults() -> None:
     nested = schema["properties"]["items"]["items"]
     assert nested["required"] == ["value"]
     assert "default" not in nested["properties"]["value"]
+
+
+async def test_a_task_model_serves_its_task_and_is_recorded_in_usage() -> None:
+    models: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        models.append(json.loads(request.content)["model"])
+        return httpx.Response(
+            200,
+            json={
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": '{"text":"ok"}'}],
+                    }
+                ],
+            },
+        )
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.openai.test/v1"
+    )
+    adapter = OpenAIResponsesLLM(
+        api_key="sk-test",
+        model="agent-model",
+        client=client,
+        task_models={"policy_answer_check": "check-model"},
+    )
+    try:
+        for task in ("grounded_response", "policy_answer_check"):
+            await adapter.complete(
+                task=task,
+                messages=({"role": "user", "content": "consulta"},),
+                response_model=GeneratedReply,
+            )
+    finally:
+        await client.aclose()
+    assert models == ["agent-model", "check-model"]
+    assert [record.model for record in adapter.usage_records] == models
+    assert adapter.model == "agent-model"
+
+
+async def test_every_agent_entry_point_pairs_the_turn_model_with_the_check_model() -> None:
+    adapter = build_agent_llm(api_key="sk-test", model="gpt-5-nano", check_model="gpt-5-mini")
+    try:
+        assert adapter.model == "gpt-5-nano"
+        assert adapter._task_models == {"policy_answer_check": "gpt-5-mini"}
+        assert adapter._reasoning == {"effort": "low"}
+    finally:
+        await adapter.aclose()

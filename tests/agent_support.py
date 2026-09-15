@@ -333,6 +333,10 @@ def expired(now: datetime = REFERENCE_NOW) -> datetime:
 def supported_check(claims: int = 1) -> AnswerSupportDecision:
     """The semantic check approving every claim of a model policy answer (ADR-011)."""
     return AnswerSupportDecision(
+        question_asks="la pregunta",
+        reply_answers="la pregunta",
+        off_topic_claim_indices=(),
+        redundant_claim_indices=(),
         answers_question=True,
         supported_claim_indices=tuple(range(claims)),
         unsupported_claim_indices=(),

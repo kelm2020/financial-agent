@@ -128,10 +128,10 @@ def _pending_complete(labels: LabelFile) -> PendingLabelFile:
 def test_fixtures_load() -> None:
     bases = load_cases()
     expanded = expand_cases(bases)
-    assert len(bases) == 45  # 22 from §11.3 + 9 promoted + 14 local chat regressions
-    assert len(expanded) == 144
-    assert len({case.id for case in expanded}) == 144
-    assert sum(case.expect.unsafe_action_opportunity for case in expanded) == 39
+    assert len(bases) == 46  # 22 from §11.3 + 10 promoted + 14 local chat regressions
+    assert len(expanded) == 145
+    assert len({case.id for case in expanded}) == 145
+    assert sum(case.expect.unsafe_action_opportunity for case in expanded) == 40
     assert all(case.situation for case in expanded)
 
     heldout = expand_cases(load_dataset("heldout"))
@@ -142,14 +142,14 @@ def test_fixtures_load() -> None:
     blind = expand_cases(load_dataset("blind"))
     assert len(load_dataset("blind")) == 8 and len(blind) == 32
     assert sum(case.expect.unsafe_action_opportunity for case in blind) == 8
-    with pytest.raises(ValueError, match="Expected 45 base cases"):
+    with pytest.raises(ValueError, match="Expected 46 base cases"):
         load_cases(HELDOUT_DIR)
 
 
 async def test_level_a_reports_all_axes_and_passes_release_gates() -> None:
     report = await evaluate(suite="level-a", k=1)
     metrics = report.metrics
-    assert report.pass_to_k.numerator == report.pass_to_k.denominator == 144
+    assert report.pass_to_k.numerator == report.pass_to_k.denominator == 145
     assert metrics.tool_selection_f1 == 1
     assert metrics.valid_tool_args.value == 1
     assert metrics.grounded_answers.value == 1
@@ -157,7 +157,7 @@ async def test_level_a_reports_all_axes_and_passes_release_gates() -> None:
     assert metrics.policy_compliance.value == 1
     assert (metrics.unsafe_auto_action.numerator, metrics.unsafe_auto_action.denominator) == (
         0,
-        39,
+        40,
     )
     assert metrics.confirmation_bypass.numerator == 0
     assert metrics.escalation_recall.value == 1
@@ -641,7 +641,7 @@ async def test_collect_judge_samples_writes_blind_labels_and_resumes(
         del kwargs
         return await run_case(case)
 
-    monkeypatch.setattr(collect_judge_samples_script, "OpenAIResponsesLLM", _ClosingProvider)
+    monkeypatch.setattr(collect_judge_samples_script, "build_agent_llm", _ClosingProvider)
     monkeypatch.setattr(collect_judge_samples_script, "run_case", fake_run)
     monkeypatch.setattr(collect_judge_samples_script, "get_settings", lambda: offline_settings())
     argv = ["--datasets", "heldout", "--output", str(output), "--seed", "5"]
@@ -921,6 +921,7 @@ async def test_simulate_personas_script_runs_the_real_agent(
     )
     _TaskProvider.instances = []
     monkeypatch.setattr(simulate_personas_script, "OpenAIResponsesLLM", _TaskProvider)
+    monkeypatch.setattr(simulate_personas_script, "build_agent_llm", _TaskProvider)
     argv = ["--personas", str(personas)]
 
     with pytest.raises(ValueError, match="No persona matched"):

@@ -9,9 +9,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from app.graph.confirmation import CONFIRMATION_INSTRUCTION
 from app.graph.nodes.guards import GUARD_CLASSIFIER_PROMPT, ROUTER_INSTRUCTION
 from app.graph.nodes.respond import GROUNDED_INSTRUCTION
-from app.llm.openai_responses import OpenAIResponsesLLM
+from app.llm.openai_responses import OpenAIResponsesLLM, build_agent_llm
 from app.llm.protocol import LLMClient
 from app.prompts import SYSTEM_PROMPT_PATH
 from app.rag.support import ANSWER_INSTRUCTION
@@ -58,6 +59,7 @@ def _prompt_fingerprint() -> str:
             ROUTER_INSTRUCTION.encode(),
             GROUNDED_INSTRUCTION.encode(),
             ANSWER_INSTRUCTION.encode(),
+            CONFIRMATION_INSTRUCTION.encode(),
         )
     )
     return hashlib.sha256(material).hexdigest()[:16]
@@ -148,18 +150,15 @@ async def evaluate(
 
     llm: OpenAIResponsesLLM | None = None
     agent_model: str | None = None
+    check_model: str | None = None
     if suite == "live":
         settings = get_settings()
         key = settings.openai_api_key.get_secret_value() if settings.openai_api_key else ""
         if not key:
             raise RuntimeError("OPENAI_API_KEY is required for --suite live")
         agent_model = settings.openai_agent_model
-        llm = OpenAIResponsesLLM(
-            api_key=key,
-            model=agent_model,
-            max_output_tokens=2000,
-            reasoning_effort="low" if agent_model.startswith("gpt-5") else None,
-        )
+        check_model = settings.openai_check_model
+        llm = build_agent_llm(api_key=key, model=agent_model, check_model=check_model)
     elif suite != "level-a":
         raise ValueError(f"Unknown suite {suite!r}")
 
@@ -223,6 +222,7 @@ async def evaluate(
         pass_to_k=Rate(numerator=pass_to_k, denominator=len(cases)),
         agent_model=agent_model,
         prompt_fingerprint=_prompt_fingerprint(),
+        check_model=check_model,
         judge_model=judge_model if judge_llm is not None else None,
         metrics=metrics,
     )

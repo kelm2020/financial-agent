@@ -60,10 +60,14 @@ class OpenAIResponsesLLM:
         timeout_seconds: float = 20,
         reasoning_effort: ReasoningEffort | None = None,
         client: httpx.AsyncClient | None = None,
+        task_models: Mapping[str, str] | None = None,
     ) -> None:
         if not api_key.strip():
             raise ValueError("OpenAI API key is required")
         self._model = model
+        # One task can need a stronger model than the rest of the turn (the policy answer check,
+        # ADR-011); every usage record keeps the model that actually served the call.
+        self._task_models = dict(task_models or {})
         self._max_output_tokens = max_output_tokens
         # Reasoning tokens count against max_output_tokens. Without an explicit effort gpt-5-nano
         # spent 560-700 tokens on a guard classification and ~10 % of live turns came back
@@ -92,11 +96,12 @@ class OpenAIResponsesLLM:
             for message in messages
             if message.get("role") != "system"
         ]
+        model = self._task_models.get(task, self._model)
         schema_name = re.sub(r"[^a-zA-Z0-9_-]", "_", f"{task}_{response_model.__name__}")[:64]
         response = await self._client.post(
             "/responses",
             json={
-                "model": self._model,
+                "model": model,
                 "instructions": instructions or None,
                 "input": model_input,
                 "max_output_tokens": self._max_output_tokens,
@@ -121,7 +126,7 @@ class OpenAIResponsesLLM:
             self._usage_records.append(
                 ProviderUsage(
                     task=task,
-                    model=self._model,
+                    model=model,
                     input_tokens=int(usage.get("input_tokens", 0)),
                     output_tokens=int(usage.get("output_tokens", 0)),
                     cached_tokens=int(cached),
@@ -160,9 +165,33 @@ class OpenAIResponsesLLM:
         return response_model.model_validate(json.loads(output_text))
 
     @property
+    def model(self) -> str:
+        return self._model
+
+    @property
     def usage_records(self) -> tuple[ProviderUsage, ...]:
         return tuple(self._usage_records)
 
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()
+
+
+def build_agent_llm(
+    *,
+    api_key: str,
+    model: str,
+    check_model: str,
+    max_output_tokens: int = 2000,
+    timeout_seconds: float = 20,
+) -> OpenAIResponsesLLM:
+    """The agent's client: its model for the turn and ``check_model`` for the policy answer check
+    (ADR-011). Every entry point builds it here, so no run measures a different pairing."""
+    return OpenAIResponsesLLM(
+        api_key=api_key,
+        model=model,
+        max_output_tokens=max_output_tokens,
+        timeout_seconds=timeout_seconds,
+        reasoning_effort="low" if model.startswith("gpt-5") else None,
+        task_models={"policy_answer_check": check_model},
+    )

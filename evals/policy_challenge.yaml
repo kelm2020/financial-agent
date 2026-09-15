@@ -4,8 +4,11 @@
 effective_on: 2026-09-12
 cases:
 - id: R-01
+  # Anexo E.1 la usa para medir retrieval (POL-NEG-004 en el top-3), no fija su ruteo. En la
+  # conversación la contestan las opciones reales del cliente (negociación, §8.2), que ya aplican
+  # POL-NEG-004 a su deuda; la regla general sola sería una oferta sin cifras (ADR-011).
   query: ¿en cuántas cuotas puedo pagar?
-  source: rag
+  source: backend
   answerable: true
   sections:
   - POL-NEG-004
@@ -35,8 +38,10 @@ cases:
   query: ¿qué pasa si no llego a pagar una cuota?
   source: rag
   answerable: true
+  # FAQ-004 es la versión de preguntas frecuentes de la misma regla, como en S-67 (ADR-011).
   sections:
   - POL-NEG-008
+  - FAQ-004
   required: Contestar la regla general documentada completa, sin inventar oferta personal.
 - id: N-01
   query: ¿cuál es la tasa nominal anual que aplican?

@@ -16,7 +16,7 @@ HELDOUT_DIR = ROOT / "heldout"
 # Phrasings written by a model that never saw the router or templates (scripts/generate_blind_
 # phrasings.py). Language understanding is the model's job, so level A gates only on safety.
 BLIND_DIR = ROOT / "blind"
-CANONICAL_BASE_CASES = 45  # 22 from §11.3 + 9 promoted + 14 local chat regressions
+CANONICAL_BASE_CASES = 46  # 22 from §11.3 + 10 promoted + 14 local chat regressions
 
 type DatasetName = Literal["canonical", "heldout", "blind"]
 DATASETS: dict[DatasetName, tuple[Path, int | None]] = {

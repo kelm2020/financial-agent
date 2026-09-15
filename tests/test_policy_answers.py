@@ -156,6 +156,10 @@ async def test_a_faithful_answer_may_use_the_words_of_its_section_heading() -> N
 
     # A paraphrase is shown only after the semantic check supports it (ADR-011).
     check = AnswerSupportDecision(
+        question_asks="quién puede pagar",
+        reply_answers="quién puede pagar",
+        off_topic_claim_indices=(),
+        redundant_claim_indices=(),
         answers_question=True,
         supported_claim_indices=(0,),
         unsupported_claim_indices=(),
@@ -208,7 +212,8 @@ def _claims(*items: tuple[str, str, str]) -> GroundedReply:
 async def test_answer_keeps_the_answering_section_and_drops_unrelated_ones() -> None:
     # Local chat: "¿Puedo cambiar la fecha de vencimiento de una cuota?" answered FAQ-003 plus the
     # payment-method change (PAY-MET-005) and "…fuera de los límites de este documento…"
-    # (POL-NEG-009, a sentence about the policy document).
+    # (POL-NEG-009, a sentence about the policy document). The check marks both as another
+    # situation, and only they are dropped (ADR-011).
     first = "El canal automático no cambia fechas."
     second = (
         "El pedido lo evalúa un operador y debe hacerse al menos 48 horas antes del vencimiento."
@@ -227,18 +232,29 @@ async def test_answer_keeps_the_answering_section_and_drops_unrelated_ones() -> 
     retriever = StaticRetriever(
         [corpus_chunk("FAQ-003"), corpus_chunk("PAY-MET-005"), corpus_chunk("POL-NEG-009")]
     )
-    llm = ScriptedLLM([reply, supported_check(2)])
+    check = supported_check(4).model_copy(update={"off_topic_claim_indices": (1, 2)})
+    llm = ScriptedLLM([reply, check])
     async with agent_runtime(llm=llm, retriever=retriever) as runtime:
         result = await _ask(runtime, "¿Puedo cambiar la fecha de vencimiento de una cuota?")
     assert result.text == f"{first} {second} [FAQ-003]"
-    assert {
-        "type": "claims_trimmed",
-        "received": 4,
-        "internal": 0,
-        "unsupported": 0,
-        "unrelated_section": 2,
-        "kept": 2,
-    } in runtime.recorder.events
+    trimmed = {"type": "claims_trimmed", "off_topic": 2, "redundant": 0, "kept": 2}
+    assert trimmed in runtime.recorder.events
+
+
+async def test_without_the_check_a_low_risk_answer_keeps_its_best_ranked_section() -> None:
+    # Nothing semantic dropped the unrelated claim, so the lexical fallback does.
+    family = "Sí, por transferencia o cupón."
+    unrelated = (
+        "El medio de pago de un plan vigente se puede cambiar hasta 48 horas antes del próximo "
+        "vencimiento."
+    )
+    reply = _claims((family, "FAQ-010", family), (unrelated, "PAY-MET-005", unrelated))
+    retriever = StaticRetriever([corpus_chunk("FAQ-010"), corpus_chunk("PAY-MET-005")])
+    async with agent_runtime(llm=ScriptedLLM([reply]), retriever=retriever) as runtime:
+        runtime.recorder.max_llm_calls = 1
+        result = await _ask(runtime, "¿puede pagar un familiar por mí?")
+    assert result.text == f"{family} [FAQ-010]"
+    assert {"type": "answer_check_skipped_budget"} in runtime.recorder.events
 
 
 async def test_a_reply_with_only_internal_claims_is_an_abstention() -> None:

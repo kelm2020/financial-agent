@@ -10,7 +10,7 @@ from contextlib import AsyncExitStack
 from datetime import date
 
 from app.graph.context import Retriever
-from app.llm.openai_responses import OpenAIResponsesLLM
+from app.llm.openai_responses import build_agent_llm
 from app.llm.protocol import LLMClient
 from app.rag.factory import build_retriever, embedding_client, reranker_client
 from app.rag.ingest import ingest_corpus
@@ -50,12 +50,7 @@ async def _live_dependencies(
     store = InMemoryHybridStore()
     await ingest_corpus(store, embeddings, effective_on=effective_on)
     model = settings.openai_agent_model
-    llm = OpenAIResponsesLLM(
-        api_key=key,
-        model=model,
-        max_output_tokens=2000,
-        reasoning_effort="low" if model.startswith("gpt-5") else None,
-    )
+    llm = build_agent_llm(api_key=key, model=model, check_model=settings.openai_check_model)
     return llm, build_retriever(store, embeddings, settings, reranker=reranker)
 
 

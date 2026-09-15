@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     mock_api_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8001")
     openai_api_key: SecretStr | None = None
     openai_agent_model: str = "gpt-5-nano"
+    # The semantic check of policy answers (ADR-011): gpt-5-nano passed replies about a neighbour
+    # situation that shared a word with the question; gpt-5-mini rejects them on the dev bench.
+    openai_check_model: str = "gpt-5-mini"
     openai_judge_model: str | None = None
     openai_simulator_model: str | None = None
     cohere_api_key: SecretStr | None = None

@@ -35,6 +35,22 @@ from tests.agent_support import StaticRetriever, agent_runtime, corpus_chunk, su
         ),
         ("¿cuánto de los intereses me pueden perdonar?", "consulta_general", "negociacion"),
         ("perdón, ¿cuánto debo?", "consulta_deuda", "any"),
+        # Policy regression set (dev, ADR-011): conjugated verbs name the same concepts.
+        (
+            "Che, cancelando de una, ¿me reducen algo de los intereses?",
+            "consulta_general",
+            "negociacion",
+        ),
+        ("¿Me toman una parte y eliminan el resto de la deuda?", "consulta_general", "negociacion"),
+        ("¿Hasta qué día vale lo que me propusieron?", "consulta_general", "any"),
+        ("¿Qué saldo tengo pendiente y se admite cupón?", "consulta_mixta", "any"),
+        ("Contame mis alternativas habilitadas y si hace falta adelanto", "consulta_mixta", "any"),
+        ("Me quedo con la alternativa de 3 cuotas", "aceptar_opcion", "any"),
+        ("¿Cómo financio la compra de una casa con ustedes?", "fuera_de_dominio", "any"),
+        # Paying with an instrument that also names an investment asks for payment methods.
+        ("¿cuándo se acredita un depósito en efectivo?", "consulta_general", "medios_pago"),
+        ("¿Qué bonos rinden más para juntar la plata de las cuotas?", "fuera_de_dominio", "any"),
+        ("¿conviene comprar dólares para pagar la deuda?", "fuera_de_dominio", "any"),
         # Their own routes are kept.
         ("¿Puedo pagar en 9 cuotas?", "negociacion", "any"),
         ("¿Me pueden hacer una quita de intereses?", "consulta_general", "negociacion"),

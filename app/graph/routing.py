@@ -10,12 +10,14 @@ from app.guards.numbers_es import numbers_in_words
 
 _OPTION = re.compile(r"\bOPT-[A-Z0-9]{2,10}\b", re.IGNORECASE)
 _INSTALLMENTS = re.compile(r"\b(\d{1,2})\s+cuotas?\b", re.IGNORECASE)
+# What the agent offered, by any of its names: "la alternativa de 3 cuotas" is the option of 3.
+_OFFERED = r"(?:(?:opcion|alternativa|propuesta|plan) )?"
 _INSTALLMENT_CHOICE = re.compile(
-    r"(?:^|\b)(?<!no )(?:quiero|elijo|tomo|prefiero|agarro) (?:la |las |el )?(?:opcion )?(?:de )?"
+    rf"(?:^|\b)(?<!no )(?:quiero|elijo|tomo|prefiero|agarro) (?:la |las |el )?{_OFFERED}(?:de )?"
     r"\d{1,2} cuotas?\b|"
-    r"\b(?:voy|vamos) con (?:la |las )?(?:de )?\d{1,2} cuotas?\b|"
+    rf"\b(?:voy|vamos) con (?:la |las |el )?{_OFFERED}(?:de )?\d{{1,2}} cuotas?\b|"
     r"\bme interesa (?:la )?opcion (?:de )?\d{1,2} cuotas?\b|"
-    r"\bme quedo con (?:la |las )?(?:de )?\d{1,2} cuotas?\b|"
+    rf"\bme quedo con (?:la |las |el )?{_OFFERED}(?:de )?\d{{1,2}} cuotas?\b|"
     r"^dale(?:,)? (?:con )?(?:la de )?\d{1,2} cuotas?\b|"
     r"\b(?:la opcion|las?) (?:de )?\d{1,2} cuotas?\b.{0,60}\b(?:me sirve|dejalo asi)\b"
 )
@@ -148,7 +150,21 @@ _OFF_TOPIC = re.compile(
     r"\bconsejos? financier|\binvert|\binversion|\bcripto|\bbitcoin\b|\bplazo fijo\b|"
     r"\bcomprar dolares\b|\bacciones\b|\bfondo comun\b|\bfci\b|\bahorros?\b|"
     r"\binflacion\b|\bbonos?\b|\bdepositos?\b|\bmoneda extranjera\b|"
-    r"\bcryptos?\b|\bdiversificar\b"
+    r"\bcryptos?\b|\bdiversificar\b|"
+    # new credit for a purchase is not this debt
+    r"\bcompra(?:r)? (?:de )?(?:una |un )?(?:casa|auto|departamento|propiedad|vivienda|terreno)\b|"
+    r"\bhipotec"
+)
+# Instruments that also name an investment. Paying the debt with one asks which payment methods are
+# accepted (PAY-MET-003); investing, saving or advice stays out of collections.
+_PAYMENT_INSTRUMENT = re.compile(
+    r"\b(?:cripto\w*|crypto\w*|bitcoin|ethereum|dolares|moneda extranjera|deposit\w*|cheque)\b"
+)
+_PAYMENT_ACT = re.compile(r"\b(?:acept|pag|abon|sald|acredit|reflej)\w*")
+_INVESTMENT = re.compile(
+    r"\binvert|\binversion|\bahorr|\brind|\brendimiento|\bplazo fijo\b|\bcomprar dolares\b|"
+    r"\bbonos?\b|\bacciones\b|\bfondo comun\b|\bfci\b|\bdiversificar\b|\bconsejos? financier|"
+    r"\binflacion\b"
 )
 
 
@@ -420,10 +436,14 @@ def route_turn(text: str) -> RouteResult:
     if mixed_request(text):
         return RouteResult(intent="consulta_mixta")
     if _OFF_TOPIC.search(normalized):
-        # Paying WITH crypto or a cheque asks which payment methods are accepted, and PAY-MET-003
-        # answers it. Investing, saving or advice is out of collections even when it mentions
-        # installments or "esta deuda".
-        if re.search(r"\b(?:aceptan|pagar|abonar)\b.*\b(?:cripto|bitcoin|cheque)", normalized):
+        # Paying WITH crypto, a deposit or foreign currency asks which payment methods are accepted.
+        # Investing, saving or advice is out of collections even when it mentions installments or
+        # "esta deuda".
+        if (
+            _PAYMENT_INSTRUMENT.search(normalized)
+            and _PAYMENT_ACT.search(normalized)
+            and not _INVESTMENT.search(normalized)
+        ):
             return RouteResult(intent="consulta_general", topic="medios_pago")
         return RouteResult(intent="fuera_de_dominio")
     if policy_request(text):

@@ -65,6 +65,7 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_AGENT_MODEL: gpt-5-nano
+      OPENAI_CHECK_MODEL: gpt-5-mini
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -84,6 +85,7 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_AGENT_MODEL: gpt-5-nano
+      OPENAI_CHECK_MODEL: gpt-5-mini
       OPENAI_SIMULATOR_MODEL: gpt-4.1-mini-2025-04-14
       # The judge calibrated against the human labels (README, ADR-010).
       JUDGE_MODEL: gpt-4.1-mini-2025-04-14

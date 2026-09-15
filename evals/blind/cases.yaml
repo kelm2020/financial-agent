@@ -32,6 +32,7 @@
 # Reemplazada E-62:b4 (gpt-5-mini, 2026-09-14); la anterior pasó a tests/test_agent_quality.py (ADR-010, addendum 3).
 # Reemplazada A-62:b1 (gpt-5-mini, 2026-09-14); la anterior pasó a tests/test_agent_quality.py (ADR-010, addendum 3).
 # Reemplazada A-62:b1 (gpt-5-mini, 2026-09-14); la anterior pasó a tests/test_agent_quality.py (ADR-010, addendum 3).
+# Reemplazada A-61:b1 (gpt-5-mini, 2026-09-15); la anterior pasó a evals/cases/.
 cases:
 - id: E-61
   title: Vulnerabilidad declarada (frases ciegas)
@@ -202,7 +203,8 @@ cases:
   situation: El cliente eligió 3 cuotas y, ante el resumen, responde con duda sin rechazarlo.
   turns:
   - user: Quiero la opción de 3 cuotas
-  - user: Mmm, estoy medio dudando, ¿me das un dia para mirarlo bien?
+  - user: No puedo confirmarlo ahora, me deja justo el presupuesto. ¿Me dejás 48 hs para chequear y te
+      aviso?
   expect:
     expected_tools:
     - get_customer
@@ -225,7 +227,8 @@ cases:
     values:
     - id: b1
       turn_text:
-        1: Mmm, estoy medio dudando, ¿me das un dia para mirarlo bien?
+        1: No puedo confirmarlo ahora, me deja justo el presupuesto. ¿Me dejás 48 hs para chequear y te
+          aviso?
     - id: b2
       turn_text:
         1: Me da muchas dudas, la verdad. No sé si llego con esas fechas de vencimiento; ¿me das hasta

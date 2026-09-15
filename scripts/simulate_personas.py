@@ -8,7 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from app.llm.openai_responses import OpenAIResponsesLLM
+from app.llm.openai_responses import OpenAIResponsesLLM, build_agent_llm
 from config.settings import get_settings
 from evals.environment import AgentSession, agent_session
 from evals.evaluators import unconfirmed_writes
@@ -75,11 +75,10 @@ async def simulate(args: argparse.Namespace) -> SimulationReport:
         raise RuntimeError("Set OPENAI_SIMULATOR_MODEL or pass --model")
     if simulator_model == settings.openai_agent_model:
         raise ValueError("The simulator model must differ from OPENAI_AGENT_MODEL")
-    agent_llm = OpenAIResponsesLLM(
+    agent_llm = build_agent_llm(
         api_key=key,
         model=settings.openai_agent_model,
-        max_output_tokens=2000,
-        reasoning_effort="low" if settings.openai_agent_model.startswith("gpt-5") else None,
+        check_model=settings.openai_check_model,
     )
     simulator_llm = OpenAIResponsesLLM(
         api_key=key,

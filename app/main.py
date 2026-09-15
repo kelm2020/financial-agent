@@ -23,7 +23,7 @@ from app.graph.service import ConversationAgentService, ConversationNotFoundErro
 from app.guards.config import guardrail_config, load_contact_allowlist
 from app.guards.output import OutputValidator
 from app.guards.preflight import PreflightPolicy
-from app.llm.openai_responses import OpenAIResponsesLLM
+from app.llm.openai_responses import build_agent_llm
 from app.llm.protocol import LLMClient
 from app.prompts import load_system_prompt
 from app.rag.factory import build_retriever, embedding_client, reranker_client
@@ -111,11 +111,10 @@ def create_app(
     postgres_enabled = resolved.app_env == "production" if use_postgres is None else use_postgres
     api_key = resolved.openai_api_key.get_secret_value() if resolved.openai_api_key else ""
     owned_llm = (
-        OpenAIResponsesLLM(
+        build_agent_llm(
             api_key=api_key,
             model=resolved.openai_agent_model,
-            max_output_tokens=2000,
-            reasoning_effort=("low" if resolved.openai_agent_model.startswith("gpt-5") else None),
+            check_model=resolved.openai_check_model,
         )
         if llm is None and api_key.strip()
         else None

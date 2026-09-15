@@ -6,7 +6,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from app.llm.openai_responses import OpenAIResponsesLLM
+from app.llm.openai_responses import build_agent_llm
 from config.settings import get_settings
 from evals.dataset import DATASETS, load_dataset
 from evals.environment import run_case
@@ -79,7 +79,11 @@ async def collect(args: argparse.Namespace) -> Path:
         key = settings.openai_api_key.get_secret_value() if settings.openai_api_key else ""
         if not key:
             raise RuntimeError("OPENAI_API_KEY is required to collect real judge samples")
-        llm = OpenAIResponsesLLM(api_key=key, model=settings.openai_agent_model)
+        llm = build_agent_llm(
+            api_key=key,
+            model=settings.openai_agent_model,
+            check_model=settings.openai_check_model,
+        )
         try:
             for index, case in enumerate(pending, 1):
                 observed = await run_case(case, llm=llm)

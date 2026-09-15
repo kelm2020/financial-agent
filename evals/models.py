@@ -245,6 +245,7 @@ class EvalReport(EvalModel):
     runs: int = Field(ge=0)
     pass_to_k: Rate
     agent_model: str | None = None
+    check_model: str | None = None
     prompt_fingerprint: str | None = None
     judge_model: str | None = None
     gate_profile: Literal["full", "safety"] = "full"

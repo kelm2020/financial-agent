@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from app.graph.confirmation import recheck_reason
 from app.graph.context import GraphContext
-from app.graph.ontology import policy_risk
+from app.graph.ontology import policy_risk, retrieval_query
 from app.graph.recorder import TurnBudgetExceeded
 from app.graph.routing import (
     asks_debt_composition,
@@ -487,7 +487,10 @@ async def _policy_plan(
     try:
         if generate:
             result = await context.retriever.search_for_generation(
-                text, topic=topic, effective_on=context.clock.now().date(), limit=POLICY_CANDIDATES
+                retrieval_query(text),
+                topic=topic,
+                effective_on=context.clock.now().date(),
+                limit=POLICY_CANDIDATES,
             )
         else:
             result = await context.retriever.search(
@@ -1247,10 +1250,14 @@ GROUNDED_INSTRUCTION = (
     "presupone (condición, medio, moneda, sujeto, plazo, excepción); no agregues aspectos que no "
     "pide. Poné en unresolved_aspects cada aspecto pedido que el material no responda; en ese caso "
     "devolvé text y claims vacíos, porque una respuesta parcial no es una respuesta. Si el "
-    "material responde lo pedido, unresolved_aspects queda vacío. No uses conocimiento externo ni "
+    "material responde lo pedido, unresolved_aspects queda vacío. Si la regla distingue casos "
+    "(cuándo sí y cuándo no), incluí cada caso que la sección documenta. No uses conocimiento "
+    "externo ni "
     "confundas conceptos vecinos: pagar todo de una vez con pagar una parte, recargo con tasa "
     "anual o CFT, quita con beneficio fiscal, medio de pago con fecha de pago o con cesión de la "
-    "deuda."
+    "deuda. Vocabulario de la base: una quita es un descuento, rebaja o reducción de lo que se "
+    "debe; el pago único es pagar todo de una vez; el anticipo o entrega inicial es lo que se paga "
+    "al empezar un plan en cuotas; el pago parcial es pagar una parte sin acuerdo."
 )
 
 
@@ -1335,6 +1342,7 @@ async def _generate(
         return Candidate(text="", unresolved=grounded.unresolved_aspects)
     if not grounded.claims:
         return Candidate(text=normalize_visible(grounded.text))
+    grounded = grounded.model_copy(update={"claims": _claims_by_section_id(grounded.claims, state)})
     # The claims are the answer. The visible text is composed from their sentences, so a preamble
     # or a sentence the model did not back with a quote never reaches the customer. Sentences for
     # the agent, sections unrelated to the one that answers and restatements are dropped (local
@@ -1358,11 +1366,12 @@ async def _generate(
         or not quote_verified(claim.quote, sources[claim.section_id.upper()])
         or sentence_supported(claim.sentence, sources[claim.section_id.upper()])
     ]
-    # The model reads several candidate sections: claims about an unrelated one are dropped.
-    focused = _focused_claims(supported, state.get("retrieved", []))
+    # Claims about another section stay: the semantic check drops the ones about another
+    # situation. Keeping only the best-ranked section dropped the answer when a neighbour ranked
+    # first ("¿me reducen algo de los intereses?" kept FAQ-013 and lost POL-NEG-003, ADR-011).
     claims = [
         claim.model_copy(update={"sentence": _as_sentence(claim.sentence)})
-        for claim in _distinct_claims(focused)
+        for claim in _distinct_claims(supported)
     ]
     if len(claims) < len(grounded.claims):
         runtime.context.recorder.record_event(
@@ -1370,7 +1379,6 @@ async def _generate(
             received=len(grounded.claims),
             internal=len(grounded.claims) - len(visible),
             unsupported=len(visible) - len(supported),
-            unrelated_section=len(supported) - len(focused),
             kept=len(claims),
         )
     if not claims:
@@ -1380,9 +1388,31 @@ async def _generate(
     backed = {_sentence_key(sentence) for sentence in sentences}
     if any(_sentence_key(item) not in backed for item in split_sentences(grounded.text)):
         runtime.context.recorder.record_event("unclaimed_text_dropped")
+    return _claims_candidate(claims)
+
+
+def _claims_by_section_id(
+    claims: Sequence[GroundedClaim], state: AgentState
+) -> tuple[GroundedClaim, ...]:
+    """A claim that cites a retrieved section by its title cites that section. The prompt shows
+    each title next to its id (live: "Medios no habilitados" instead of PAY-MET-003, rejected
+    twice). Only an exact title maps; anything else still fails validation."""
+    hits = state.get("retrieved", [])
+    ids = {hit.chunk.section_id.upper() for hit in hits}
+    by_title = {quote_key(hit.chunk.heading): hit.chunk.section_id for hit in hits}
+    return tuple(
+        claim.model_copy(update={"section_id": by_title[quote_key(claim.section_id)]})
+        if claim.section_id.upper() not in ids and quote_key(claim.section_id) in by_title
+        else claim
+        for claim in claims
+    )
+
+
+def _claims_candidate(claims: Sequence[GroundedClaim]) -> Candidate:
+    """The visible answer: its claims' sentences followed by the labels of their sections."""
     sections = dict.fromkeys(claim.section_id.upper() for claim in claims)
     labels = " ".join(f"[{section}]" for section in sections)
-    text = f"{' '.join(sentence for sentence in sentences if sentence)} {labels}"
+    text = f"{' '.join(claim.sentence for claim in claims if claim.sentence)} {labels}"
     return Candidate(text=normalize_visible(text), claims=tuple(claims))
 
 
@@ -1454,6 +1484,8 @@ async def _materialize(
     context = runtime.context
     if plan.generation is not None and context.llm is not None:
         feedback: str | None = None
+        # Claims of the last rejected draft: its quotes are what the model chose as the answer.
+        chosen: tuple[GroundedClaim, ...] = ()
         for _attempt in range(2):  # the first answer plus exactly one regeneration
             try:
                 candidate = await _generate(plan, state, runtime, feedback)
@@ -1495,11 +1527,29 @@ async def _materialize(
                 return await _checked_policy_answer(plan, state, runtime, candidate, flags)
             flags.extend(rejected)
             feedback = ",".join(rejected)
+            chosen = candidate.claims
         else:
             flags.append("output_validation_failed")
             # A failed model draft is not the end of the response path. The same plan always has
             # a deterministic template (and policy plans have a source-backed extract), so prefer
             # that auditable fallback before offering or performing a derivation.
+        if plan.kind == "policy" and chosen:
+            # The paraphrases failed validation (live: "un pago parcial" read as the number 1),
+            # but the quotes they cite are verified source text the model chose as the answer.
+            # Read verbatim and checked like any answer, they are the safe template of §10.1.4
+            # instead of an abstention on an answerable question.
+            quotes = _verbatim_quotes(chosen, state)
+            if quotes is not None and not validate_candidate(
+                quotes.text,
+                plan,
+                state,
+                context.output_validator,
+                claims=quotes.claims,
+                policy_content=True,
+            ):
+                return await _checked_policy_answer(
+                    plan, state, runtime, quotes, flags, fallback_reason="validation_failed"
+                )
         if plan.template_id == "policy_extract" and not _extract_allowed(plan, context):
             # Below the evidence gate, or in production, an unverified extract is not an answer.
             text, template = await _abstain(plan, state, runtime, "no_verified_answer")
@@ -1535,6 +1585,8 @@ async def _checked_policy_answer(
     runtime: Runtime[GraphContext],
     candidate: Candidate,
     flags: list[GuardFlag],
+    *,
+    fallback_reason: str | None = None,
 ) -> tuple[str, list[GuardFlag], str]:
     """A validated model answer is shown only after the semantic check. It catches a paraphrase
     that changed its quote and, for a verbatim answer too, a section that does not answer the
@@ -1542,17 +1594,37 @@ async def _checked_policy_answer(
 
     When the check cannot run, a high-risk answer abstains and a low-risk one is shown as its
     verbatim quotes. A claim the check rejects is also replaced by the quotes it cites.
+    ``fallback_reason`` marks a candidate that already is those verbatim quotes. Claims the check
+    marks as another situation are dropped before any of this.
     """
     context = runtime.context
     template = plan.template_id or ""
     assert context.llm is not None
     outcome: str
     try:
-        outcome = await check_answer(
+        check = await check_answer(
             state.get("last_user_text", ""),
             GroundedReply(text=candidate.text, claims=candidate.claims),
             context.llm,
+            section_titles={
+                hit.chunk.section_id: hit.chunk.heading for hit in state.get("retrieved", [])
+            },
         )
+        outcome = check.outcome
+        dropped = set(check.off_topic) | set(check.redundant)
+        if dropped and outcome != "not_an_answer":
+            # A sentence about another situation, or repeating an earlier one, is dropped and the
+            # rest answers (live: a correct discount answer also said a partial payment grants no
+            # quita and was rejected whole; a missed installment was explained twice, from FAQ-004
+            # and POL-NEG-008).
+            kept = [claim for index, claim in enumerate(candidate.claims) if index not in dropped]
+            context.recorder.record_event(
+                "claims_trimmed",
+                off_topic=len(check.off_topic),
+                redundant=len(check.redundant),
+                kept=len(kept),
+            )
+            candidate = _claims_candidate(kept)
     except TurnBudgetExceeded:
         # The answer exists; only its check is unaffordable. Not a safety stop.
         context.recorder.record_event("answer_check_skipped_budget")
@@ -1561,15 +1633,25 @@ async def _checked_policy_answer(
         context.recorder.record_event("answer_check_unavailable")
         outcome = "check_unavailable"
     if outcome == "supported":
-        context.recorder.record_event(
-            "policy_answer", outcome="model_answer", checked=True, risk=plan.risk
+        answer = (
+            {"outcome": "model_answer"}
+            if fallback_reason is None
+            else {"outcome": "verbatim_quotes", "reason": fallback_reason}
         )
+        context.recorder.record_event("policy_answer", **answer, checked=True, risk=plan.risk)
         return candidate.text, flags, template
     unchecked = outcome in {"check_skipped_budget", "check_unavailable"}
     if outcome == "not_an_answer" or (unchecked and plan.risk == "high"):
         text, used = await _abstain(plan, state, runtime, outcome)
         return text, flags, used
-    quotes = _verbatim_quotes(candidate.claims, state)
+    # Without the check nothing semantic dropped the claims about another situation: the lexical
+    # fallback keeps the best-ranked cited section and the sections it refers to.
+    claims = (
+        _focused_claims(candidate.claims, state.get("retrieved", []))
+        if unchecked
+        else candidate.claims
+    )
+    quotes = _verbatim_quotes(claims, state)
     if quotes is not None and not validate_candidate(
         quotes.text,
         plan,

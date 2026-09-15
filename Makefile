@@ -38,7 +38,7 @@ eval-guardrails:
 	uv run python -m scripts.evaluate_guardrails --split dev
 	uv run python -m scripts.evaluate_guardrails --split test
 
-# Phase-4 Level A: 45 canonical cases expanded to 144 graph runs. No network/key. Fails on any
+# Phase-4 Level A: 46 canonical cases expanded to 145 graph runs. No network/key. Fails on any
 # gate, including a tool_selection_f1 drop against evals/baselines.json.
 eval:
 	uv run python -m evals.run --suite level-a --k 1
