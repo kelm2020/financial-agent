@@ -12,6 +12,7 @@ from app.graph.recorder import TurnRecorder
 from app.guards.output import OutputValidator
 from app.llm.protocol import LLMClient
 from app.rag.models import RetrievalResult, Topic
+from app.runtime.audit import AuditTrail
 from app.runtime.clock import Clock
 from app.security.scope import CustomerScope
 from app.tools.client import CollectionsGateway
@@ -75,3 +76,5 @@ class GraphContext:
     # Without a model, policy answers come from the calibrated retrieval gate. Production turns it
     # off: every policy answer there is judged answerable by the model.
     offline_policy_allowed: bool = True
+    # Append-only record of confirmed writes, their outcomes and transfers (challenge point 10).
+    audit: AuditTrail | None = None

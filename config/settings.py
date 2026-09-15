@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     conversation_lock_timeout_seconds: float = 10.0
     # Static per deployment. Production derives a stable fallback from MOCK_TOKEN_SECRET.
     system_prompt_canary: SecretStr | None = None
+    # Seals audit rows and pseudonymizes the customer in them. Production derives a stable fallback
+    # from MOCK_TOKEN_SECRET; set it explicitly so audit keys rotate independently from auth.
+    audit_hmac_key: SecretStr | None = None
 
     # §7.4 fusion gate. The absolute dense gate is calibrated on evals/retrieval_dev.yaml only
     # (make calibrate-rag) and must never be tuned against the held-out test split.

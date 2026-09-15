@@ -7,6 +7,7 @@ from uuid import uuid4
 from langgraph.runtime import Runtime
 
 from app.graph.context import GraphContext
+from app.graph.effects import audit_effect, transfer_to_human
 from app.graph.nodes.hydrate import BusinessRead, read_business_data
 from app.graph.state import AgentState, ConfirmationVerdict, ResponsePlan
 from app.guards.config import guardrail_config
@@ -329,6 +330,22 @@ async def execute_agreement(state: AgentState, runtime: Runtime[GraphContext]) -
         return _offer_again(offer, template_id="draft_invalidated")
 
     key = agreement_idempotency_key(context.scope.customer_id, draft.draft_id)
+    # No audit row, no write: an effect that could not be recorded is not attempted. The draft
+    # stays pending, so a later "sí" retries it under the same idempotency key.
+    if not await audit_effect(
+        context,
+        "agreement_write_requested",
+        conversation_id=state.get("conversation_id", ""),
+        draft_id=draft.draft_id,
+        opcion_id=draft.opcion_id,
+        medio_pago=draft.medio_pago,
+        confirmation_event_id=state.get("confirmation_event_id", ""),
+        idempotency_key=key,
+    ):
+        return {
+            **offer.read.updates,
+            "response_plan": ResponsePlan(kind="error", template_id="data_unavailable"),
+        }
     context.recorder.record_tool(
         "create_payment_agreement",
         draft_id=draft.draft_id,
@@ -364,6 +381,18 @@ async def reconcile_agreement(
     runtime.context.recorder.record_event(
         "agreement_reconciliation_attempt", draft_id=draft.draft_id
     )
+    if not await audit_effect(
+        runtime.context,
+        "agreement_write_requested",
+        conversation_id=state.get("conversation_id", ""),
+        draft_id=draft.draft_id,
+        opcion_id=draft.opcion_id,
+        medio_pago=draft.medio_pago,
+        idempotency_key=key,
+        replay="true",
+    ):
+        # The unknown write stays unknown: the replay waits for a turn that can audit it.
+        return {"response_plan": ResponsePlan(kind="error", template_id="write_unknown_pending")}
     runtime.context.recorder.record_tool(
         "create_payment_agreement",
         draft_id=draft.draft_id,
@@ -405,6 +434,14 @@ async def _handle_agreement_result(
         context.recorder.record_event(
             "agreement_created", draft_id=draft.draft_id, agreement_id=result.data.agreement_id
         )
+        await audit_effect(
+            context,
+            "agreement_created",
+            conversation_id=state.get("conversation_id", ""),
+            draft_id=draft.draft_id,
+            agreement_id=result.data.agreement_id,
+            replayed=str(result.data.replayed).lower(),
+        )
         return {
             **read_updates,
             "pending_draft": None,
@@ -425,6 +462,13 @@ async def _handle_agreement_result(
             "agreement_already_exists",
             draft_id=draft.draft_id,
             agreement_id=result.resource_id,
+        )
+        await audit_effect(
+            context,
+            "agreement_already_exists",
+            conversation_id=state.get("conversation_id", ""),
+            draft_id=draft.draft_id,
+            agreement_id=result.resource_id or "",
         )
         return {
             **read_updates,
@@ -447,9 +491,15 @@ async def _handle_agreement_result(
             idempotency_key=key,
             correlation_id=result.correlation_id,
         )
-        context.recorder.record_tool("request_human", motivo="falla_tecnica")
-        transfer = await context.gateway.transfer_to_human(
-            context.scope,
+        await audit_effect(
+            context,
+            "agreement_write_rejected",
+            conversation_id=state.get("conversation_id", ""),
+            draft_id=draft.draft_id,
+            error_code="IDEMPOTENCY_KEY_REUSE",
+        )
+        transfer = await transfer_to_human(
+            context,
             conversation_id=state.get("conversation_id", "unknown"),
             motivo="falla_tecnica",
             resumen=(
@@ -477,9 +527,16 @@ async def _handle_agreement_result(
         context.recorder.record_event(
             "agreement_outcome_unknown", draft_id=draft.draft_id, idempotency_key=key
         )
-        context.recorder.record_tool("request_human", motivo="outcome_de_escritura_desconocido")
-        transfer = await context.gateway.transfer_to_human(
-            context.scope,
+        await audit_effect(
+            context,
+            "agreement_outcome_unknown",
+            conversation_id=state.get("conversation_id", ""),
+            draft_id=draft.draft_id,
+            idempotency_key=key,
+            status=result.status,
+        )
+        transfer = await transfer_to_human(
+            context,
             conversation_id=state.get("conversation_id", "unknown"),
             motivo="outcome_de_escritura_desconocido",
             resumen=(
@@ -497,6 +554,13 @@ async def _handle_agreement_result(
                 template_id="write_unknown" if transfer.status == "ok" else "write_unknown_offer",
             ),
         }
+    await audit_effect(
+        context,
+        "agreement_write_rejected",
+        conversation_id=state.get("conversation_id", ""),
+        draft_id=draft.draft_id,
+        error_code=result.error_code or result.status,
+    )
     return {
         "pending_draft": None,
         "agreement_status": "none",

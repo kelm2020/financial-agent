@@ -584,12 +584,15 @@ def test_prompt_canary_is_stable_in_production_and_random_locally() -> None:
 
 
 async def test_rate_limit_rejects_before_the_graph() -> None:
+    # A fake monotonic clock crosses the window without sleeping: under a loaded CI runner a real
+    # 60 ms sleep against a 50 ms window failed intermittently.
+    now = [0.0]
     async with agent_runtime() as runtime:
         service = ConversationAgentService(
             graph=runtime.graph,
             conversations=runtime.store,
             coordinator=InMemoryConversationRunCoordinator(),
-            rate_limiter=SlidingWindowRateLimiter(limit=1, window_seconds=0.05),
+            rate_limiter=SlidingWindowRateLimiter(limit=1, window_seconds=60, clock=lambda: now[0]),
         )
         conversation = await service.create_conversation("CUST-00125")
         first = await service.send_message(
@@ -599,7 +602,7 @@ async def test_rate_limit_rejects_before_the_graph() -> None:
             conversation.conversation_id, "CUST-00125", "hola", context=runtime.context
         )
         assert (first.http_status, second.http_status) == (200, 429)
-        await asyncio.sleep(0.06)
+        now[0] = 60.0
         third = await service.send_message(
             conversation.conversation_id, "CUST-00125", "hola", context=runtime.context
         )

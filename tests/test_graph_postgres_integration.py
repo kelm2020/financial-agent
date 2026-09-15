@@ -329,3 +329,34 @@ async def test_production_app_lifespan_installs_postgres_runtime(
     async with api.router.lifespan_context(api):
         assert isinstance(api.state.agent_service, ConversationAgentService)
         assert "render_and_validate" in api.state.graph.get_graph().nodes
+
+
+async def test_audit_rows_are_durable_and_still_verify(agent_database_url: str) -> None:
+    from app.runtime.audit import AuditRecord, AuditTrail, PostgresAuditLog
+
+    pool = AsyncConnectionPool(agent_database_url, open=False, kwargs={"autocommit": True})
+    await pool.open(wait=True)
+    trail = AuditTrail(PostgresAuditLog(pool), key=b"postgres-audit-test")
+    reference = trail.customer_ref("CUST-00125")
+    try:
+        for conversation_id in (str(uuid4()), "not-a-uuid"):
+            await trail.record(
+                "transfer_requested",
+                conversation_id=conversation_id,
+                customer_id="CUST-00125",
+                payload={"motivo": "reclamo", "status": "ok"},
+            )
+        async with pool.connection() as connection:
+            cursor = await connection.execute(
+                "SELECT conversation_id, customer_ref_hash, event_type, payload, integrity_hmac "
+                "FROM audit_events WHERE customer_ref_hash = %s ORDER BY created_at",
+                (reference,),
+            )
+            rows = await cursor.fetchall()
+    finally:
+        await pool.close()
+    stored = [
+        AuditRecord(str(row[0]) if row[0] else "", row[1], row[2], row[3], row[4]) for row in rows
+    ]
+    assert [row[0] is None for row in rows] == [False, True]
+    assert all(trail.verifies(record) for record in stored)

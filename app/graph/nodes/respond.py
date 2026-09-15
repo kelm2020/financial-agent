@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from app.graph.confirmation import recheck_reason
 from app.graph.context import GraphContext
+from app.graph.effects import transfer_to_human
 from app.graph.ontology import policy_risk, retrieval_query
 from app.graph.recorder import TurnBudgetExceeded
 from app.graph.routing import (
@@ -536,9 +537,8 @@ async def _policy_plan(
 async def _derive(
     state: AgentState, runtime: Runtime[GraphContext], motivo: EscalationMotivo, resumen: str
 ) -> bool:
-    runtime.context.recorder.record_tool("request_human", motivo=motivo)
-    result = await runtime.context.gateway.transfer_to_human(
-        runtime.context.scope,
+    result = await transfer_to_human(
+        runtime.context,
         conversation_id=state.get("conversation_id", "unknown"),
         motivo=motivo,
         resumen=resumen,

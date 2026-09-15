@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -40,6 +41,10 @@ class BusinessRead:
         )
 
 
+async def _not_requested() -> None:
+    return None
+
+
 async def read_business_data(
     context: GraphContext,
     *,
@@ -53,13 +58,18 @@ async def read_business_data(
     read = BusinessRead(customer=cached_customer)
     if customer:
         context.recorder.record_tool("get_customer", incluir_contacto=False)
-        result = await context.gateway.get_customer(context.scope)
-        if result.status == "ok" and result.data is not None:
-            read.customer = result.data
-            read.updates["customer"] = result.data
     if debt or options:
         context.recorder.record_tool("get_debt", incluir_historial=False)
-        debt_result = await context.gateway.get_debt(context.scope)
+    # The customer and the debt are independent reads: one backend round trip instead of two
+    # (§12.4). The options need the debt fingerprint, so they are read after it.
+    customer_result, debt_result = await asyncio.gather(
+        context.gateway.get_customer(context.scope) if customer else _not_requested(),
+        context.gateway.get_debt(context.scope) if debt or options else _not_requested(),
+    )
+    if customer_result is not None and customer_result.status == "ok" and customer_result.data:
+        read.customer = customer_result.data
+        read.updates["customer"] = customer_result.data
+    if debt_result is not None:
         if debt_result.status == "ok" and debt_result.data is not None:
             read.debt = debt_result.data
             read.debt_status = "ok"

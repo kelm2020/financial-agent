@@ -29,6 +29,7 @@ from app.prompts import load_system_prompt
 from app.rag.factory import build_retriever, embedding_client, reranker_client
 from app.rag.ingest import ingest_corpus
 from app.rag.store import InMemoryHybridStore, PgVectorHybridStore
+from app.runtime.audit import AuditTrail, InMemoryAuditLog, PostgresAuditLog
 from app.runtime.clock import Clock, SystemClock
 from app.runtime.conversation_coordinator import (
     ConversationBusyError,
@@ -73,6 +74,22 @@ class MessageBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(min_length=1)
+
+
+def _audit_key(settings: Settings) -> bytes:
+    configured = (
+        settings.audit_hmac_key.get_secret_value().strip()
+        if settings.audit_hmac_key is not None
+        else ""
+    )
+    if configured:
+        return configured.encode()
+    if settings.app_env == "production":
+        # Stable across replicas, so a row sealed by one verifies on another. Deployments should
+        # still set AUDIT_HMAC_KEY so audit keys rotate independently from auth.
+        secret = settings.mock_token_secret.get_secret_value()
+        return hashlib.sha256(f"audit-hmac|{secret}".encode()).digest()
+    return secrets.token_bytes(32)
 
 
 def _bearer_token(authorization: str) -> str:
@@ -124,6 +141,7 @@ def create_app(
     # Static per deployment (prompt caching, §12.5). Without explicit configuration each process
     # draws its own secret instead of using a value published in the repository.
     canary = _prompt_canary(resolved)
+    audit_key = _audit_key(resolved)
     base_prompt = load_system_prompt()
     system_prompt = f"{base_prompt}\nReferencia interna de versión: {canary}"
     output_validator = OutputValidator(
@@ -132,8 +150,11 @@ def create_app(
         protected_prompt=base_prompt,
     )
 
-    def install_runtime(api: FastAPI, *, saver: Any, conversations: Any, coordinator: Any) -> None:
+    def install_runtime(
+        api: FastAPI, *, saver: Any, conversations: Any, coordinator: Any, audit_log: Any
+    ) -> None:
         graph = build_graph(saver)
+        api.state.audit = AuditTrail(audit_log, key=audit_key)
         api.state.graph = graph
         api.state.agent_service = ConversationAgentService(
             graph=graph,
@@ -156,6 +177,7 @@ def create_app(
                 if api_retriever is None and api_key.strip():
                     api_retriever = await _local_retriever(stack, resolved, clock or SystemClock())
                 yield
+                await api.state.agent_service.drain()
                 return
             pool = AsyncConnectionPool(
                 resolved.database_url,
@@ -190,8 +212,11 @@ def create_app(
                 coordinator=PostgresConversationRunCoordinator(
                     pool, timeout_seconds=resolved.conversation_lock_timeout_seconds
                 ),
+                audit_log=PostgresAuditLog(pool),
             )
             yield
+            # Running turns finish before the pool and the checkpointer close.
+            await api.state.agent_service.drain()
 
     api = FastAPI(title="Collections Agent", version="0.3.0", lifespan=lifespan)
     if not postgres_enabled:
@@ -202,6 +227,7 @@ def create_app(
             coordinator=InMemoryConversationRunCoordinator(
                 timeout_seconds=resolved.conversation_lock_timeout_seconds
             ),
+            audit_log=InMemoryAuditLog(),
         )
 
     @asynccontextmanager
@@ -249,47 +275,56 @@ def create_app(
         token = _bearer_token(authorization)
         scope = CustomerScope.from_session(session_from_token_claims(claims.sub, token, claims.sub))
         service: ConversationAgentService = api.state.agent_service
-        async with gateway_for(token) as gateway:
-            context = GraphContext(
-                scope=scope,
-                gateway=gateway,
-                clock=clock or SystemClock(),
-                # guard classifier, policy answer, one regeneration or the model router, and the
-                # semantic check. §8.3.1 says 3; measured on the dev policy set, 3 left 4 of 10
-                # model answers without their check (ADR-011).
-                recorder=TurnRecorder(max_tool_calls=4, max_llm_calls=4),
-                output_validator=output_validator,
-                llm=api_llm,
-                guard_classifier=api_llm,
-                retriever=api_retriever,
-                system_prompt=system_prompt,
-                offline_policy_allowed=resolved.app_env != "production",
+        # The gateway lives as long as the turn, which outlives this handler while it streams.
+        resources = AsyncExitStack()
+        gateway = await resources.enter_async_context(gateway_for(token))
+        context = GraphContext(
+            scope=scope,
+            gateway=gateway,
+            clock=clock or SystemClock(),
+            # guard classifier, policy answer, one regeneration or the model router, and the
+            # semantic check. §8.3.1 says 3; measured on the dev policy set, 3 left 4 of 10 model
+            # answers without their check (ADR-011).
+            recorder=TurnRecorder(max_tool_calls=4, max_llm_calls=4),
+            output_validator=output_validator,
+            llm=api_llm,
+            guard_classifier=api_llm,
+            retriever=api_retriever,
+            system_prompt=system_prompt,
+            offline_policy_allowed=resolved.app_env != "production",
+            audit=api.state.audit,
+        )
+        try:
+            turn = await service.start_turn(
+                conversation_id,
+                claims.sub,
+                body.message,
+                context=context,
+                finalizer=resources.aclose,
             )
-            try:
-                result = await service.send_message(
-                    conversation_id, claims.sub, body.message, context=context
-                )
-            except ConversationNotFoundError as exc:
-                raise HTTPException(status_code=404, detail={"code": "NOT_FOUND"}) from exc
-            except ConversationBusyError as exc:
-                raise HTTPException(
-                    status_code=409,
-                    detail={"code": "CONVERSATION_BUSY"},
-                    headers={"Retry-After": "1"},
-                ) from exc
+        except ConversationNotFoundError as exc:
+            raise HTTPException(status_code=404, detail={"code": "NOT_FOUND"}) from exc
+        except ConversationBusyError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "CONVERSATION_BUSY"},
+                headers={"Retry-After": "1"},
+            ) from exc
 
         async def event_source() -> AsyncIterator[str]:
-            # The service already filtered to render_and_validate's validated custom events.
-            for event in result.events:
+            # Only render_and_validate's validated custom events, forwarded as the graph emits them:
+            # the filler of a high-risk answer reaches the client before the answer is generated.
+            async for event in turn.events():
                 yield (
                     f"event: {event['event']}\n"
                     f"data: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
                 )
+            await turn.result()
             yield "event: done\ndata: {}\n\n"
 
         return StreamingResponse(
             event_source(),
-            status_code=result.http_status,
+            status_code=turn.http_status,
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )

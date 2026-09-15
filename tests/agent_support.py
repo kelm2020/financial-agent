@@ -27,6 +27,7 @@ from app.policy.engine import vencimiento_oferta
 from app.rag.corpus import load_corpus
 from app.rag.models import RetrievalResult, SearchHit, Topic
 from app.rag.support import AnswerSupportDecision
+from app.runtime.audit import AuditTrail, InMemoryAuditLog
 from app.runtime.clock import FixedClock
 from app.runtime.conversation_coordinator import InMemoryConversationRunCoordinator
 from app.security.scope import CustomerScope, session_from_token_claims
@@ -218,6 +219,7 @@ class AgentRuntime:
     client: httpx.AsyncClient
     transport: FaultInjectingTransport
     log: list[tuple[str, str]] = field(default_factory=list)
+    audit_log: InMemoryAuditLog = field(default_factory=InMemoryAuditLog)
 
     @property
     def recorder(self) -> TurnRecorder:
@@ -269,6 +271,7 @@ async def agent_runtime(
         conversations=store,
         coordinator=InMemoryConversationRunCoordinator(timeout_seconds=1),
     )
+    audit_log = InMemoryAuditLog()
     context = GraphContext(
         scope=scope_for(customer_id, settings),
         gateway=CollectionsGateway(client=client, settings=settings),
@@ -279,6 +282,7 @@ async def agent_runtime(
         guard_classifier=guard_classifier,
         retriever=retriever,
         system_prompt=system_prompt,
+        audit=AuditTrail(audit_log, key=b"test-audit-key"),
     )
     try:
         yield AgentRuntime(
@@ -290,6 +294,7 @@ async def agent_runtime(
             client=client,
             transport=transport,
             log=log,
+            audit_log=audit_log,
         )
     finally:
         await client.aclose()

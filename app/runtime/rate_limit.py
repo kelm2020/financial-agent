@@ -3,21 +3,30 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
+from collections.abc import Callable
 
 
 class SlidingWindowRateLimiter:
     """Small process-local boundary limiter; Redis replacement is explicitly F5."""
 
-    def __init__(self, *, limit: int, window_seconds: float) -> None:
+    def __init__(
+        self,
+        *,
+        limit: int,
+        window_seconds: float,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         if limit < 1 or window_seconds <= 0:
             raise ValueError("Rate limit and window must be positive")
         self._limit = limit
         self._window = window_seconds
+        # Monotonic seconds; injectable so a window can be crossed without sleeping.
+        self._clock = clock
         self._entries: dict[str, deque[float]] = {}
         self._lock = asyncio.Lock()
 
     async def allow(self, key: str) -> bool:
-        now = time.monotonic()
+        now = self._clock()
         async with self._lock:
             timestamps = self._entries.setdefault(key, deque())
             while timestamps and now - timestamps[0] >= self._window:
