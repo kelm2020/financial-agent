@@ -697,7 +697,7 @@ https://github.com/user-attachments/assets/04eb9429-34b6-4c4c-8210-7b45d2b17a92
 https://github.com/user-attachments/assets/1c9dc627-968b-4ab9-a1d0-4e74a56fb6ba
 
 
-`CUST-00377`
+## `CUST-00377`
 
 Luciana Paz
 
@@ -721,7 +721,7 @@ Cliente con mora temprana con identidad sin verificar. Un plan requiere validar 
 https://github.com/user-attachments/assets/aa4ef0da-cd4e-476b-a693-b7d947979ab5
 
 
-`CUST-00212`
+## `CUST-00212`
 
 Jorge Ferreyra
 
