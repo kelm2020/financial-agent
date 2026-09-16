@@ -22,7 +22,7 @@ modelo ni un mensaje del usuario pueden elegir sobre qué cuenta opera.
 | Estrategia y resultados de evaluación | [Evaluación y resultados](#evaluación-y-resultados) |
 | Producción, escala, latencia y costos | [Latencia y costo medidos](#latencia-y-costo-medidos) · [Cómo pienso llevarlo a producción](#cómo-pienso-llevarlo-a-producción) |
 | Voz / Realtime | [Qué cambiaría para Voice AI / Realtime](#qué-cambiaría-para-voice-ai--realtime) |
-| Qué no implementé y por qué (F5, F6, F7) | [Por qué no prioricé F5, F6 y F7](#por-qué-no-prioricé-f5-f6-y-f7-y-cómo-las-resolvería) · [Estado del challenge](#estado-del-challenge) |
+| Qué no implementé y por qué (F5, parte de F6, F7) | [Por qué no prioricé F5, parte de F6 y F7](#por-qué-no-prioricé-f5-parte-de-f6-y-f7-y-cómo-las-resolvería) · [Estado del challenge](#estado-del-challenge) |
 | Entregables (repo, README, casos, diagrama, evaluación) | [Cómo cubro los entregables](#cómo-cubro-los-entregables) |
 
 **Para probar el agente vos mismo:**
