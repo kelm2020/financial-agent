@@ -419,6 +419,18 @@ def aggregate_metrics(
     ordered = sorted(latencies)
     p95 = ordered[max(0, math.ceil(len(ordered) * 0.95) - 1)] if ordered else 0.0
 
+    # Per-task and per-node latency breakdowns (latencies are in milliseconds).
+    task_latencies: dict[str, list[float]] = {}
+    node_latencies: dict[str, list[float]] = {}
+    for observed in observations:
+        for turn in observed.turns:
+            for task, latency in zip(turn.llm_tasks, turn.llm_latencies_ms, strict=False):
+                task_latencies.setdefault(task, []).append(latency)
+            for node, latency in turn.node_latencies_ms.items():
+                node_latencies.setdefault(node, []).append(latency)
+    task_p95 = {task: _percentile(values, 95.0) for task, values in task_latencies.items()}
+    node_p95 = {node: _percentile(values, 95.0) for node, values in node_latencies.items()}
+
     failures: list[str] = []
     if f1 < 0.90:
         failures.append("tool_selection_f1")
@@ -462,6 +474,17 @@ def aggregate_metrics(
         output_tokens=output_tokens,
         cached_tokens=cached_tokens,
         total_cost_usd=sum(costs) if costs else None,
+        latency_by_node_ms=node_p95,
+        latency_by_task_ms=task_p95,
         results=results,
         gate_failures=tuple(failures),
     )
+
+
+def _percentile(values: list[float], p: float) -> float:
+    """Return the p-th percentile of ``values`` using the nearest-rank method."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = max(0, min(len(ordered) - 1, round((p / 100.0) * (len(ordered) - 1))))
+    return ordered[index]

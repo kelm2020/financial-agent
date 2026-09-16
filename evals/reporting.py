@@ -62,6 +62,16 @@ def render_report(report: EvalReport) -> str:
             f"Tokens: entrada={metrics.input_tokens} · cacheados={metrics.cached_tokens} · "
             f"salida={metrics.output_tokens}"
         )
+    if metrics.latency_by_node_ms:
+        lines.append("")
+        lines.append("p95 por nodo (ms):")
+        for name, value in sorted(metrics.latency_by_node_ms.items()):
+            lines.append(f"  {name}: {value:.1f}")
+    if metrics.latency_by_task_ms:
+        lines.append("")
+        lines.append("p95 por tarea LLM (ms):")
+        for name, value in sorted(metrics.latency_by_task_ms.items()):
+            lines.append(f"  {name}: {value:.1f}")
     failed = [result for result in metrics.results if not result.passed]
     if failed:
         lines.extend(("", "Fallos:"))

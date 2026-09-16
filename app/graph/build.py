@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -28,6 +30,44 @@ from app.graph.nodes.respond import (
     render_and_validate,
 )
 from app.graph.state import AgentState
+
+
+def _timed(
+    name: str,
+    fn: Callable[..., Awaitable[dict[str, object]]],
+) -> Callable[..., Awaitable[dict[str, object]]]:
+    """Wrap a graph node so its wall-clock time reaches the per-node latency breakdown.
+
+    Accepts both two-arg ``fn(state, runtime)`` nodes (the common shape) and one-arg
+    ``fn(state)`` nodes (like ``compact_context``).
+    """
+    import inspect
+
+    takes_runtime = "runtime" in inspect.signature(fn).parameters
+
+    if takes_runtime:
+
+        async def with_runtime(state: AgentState, runtime: Any) -> dict[str, object]:
+            recorder = getattr(runtime.context, "recorder", None)
+            started = time.perf_counter()
+            try:
+                return await fn(state, runtime)
+            finally:
+                if recorder is not None:
+                    recorder.record_node_latency(name, (time.perf_counter() - started) * 1000)
+
+        return with_runtime
+
+    async def without_runtime(state: AgentState, runtime: Any) -> dict[str, object]:
+        recorder = getattr(runtime.context, "recorder", None)
+        started = time.perf_counter()
+        try:
+            return await fn(state)
+        finally:
+            if recorder is not None:
+                recorder.record_node_latency(name, (time.perf_counter() - started) * 1000)
+
+    return without_runtime
 
 
 def _after_hydrate(state: AgentState) -> str:
@@ -65,20 +105,20 @@ def _after_confirm(state: AgentState) -> str:
 
 def build_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Any:
     builder = StateGraph(AgentState, context_schema=GraphContext)
-    builder.add_node("guard_rules", guard_rules)
-    builder.add_node("guard_classifier", guard_classifier)
-    builder.add_node("route_or_confirm", route_or_confirm)
-    builder.add_node("resolve_guard", resolve_guard_node)
-    builder.add_node("deflect_plan", deflect_plan)
-    builder.add_node("hydrate", hydrate)
-    builder.add_node("build_draft", build_draft)
-    builder.add_node("confirm_gate", confirm_gate)
-    builder.add_node("execute_agreement", execute_agreement)
-    builder.add_node("reconcile_agreement", reconcile_agreement)
-    builder.add_node("plan_response", plan_from_route)
-    builder.add_node("escalate", escalate)
-    builder.add_node("render_and_validate", render_and_validate)
-    builder.add_node("compact_context", compact_context)
+    builder.add_node("guard_rules", _timed("guard_rules", guard_rules))
+    builder.add_node("guard_classifier", _timed("guard_classifier", guard_classifier))
+    builder.add_node("route_or_confirm", _timed("route_or_confirm", route_or_confirm))
+    builder.add_node("resolve_guard", _timed("resolve_guard", resolve_guard_node))
+    builder.add_node("deflect_plan", _timed("deflect_plan", deflect_plan))
+    builder.add_node("hydrate", _timed("hydrate", hydrate))
+    builder.add_node("build_draft", _timed("build_draft", build_draft))
+    builder.add_node("confirm_gate", _timed("confirm_gate", confirm_gate))
+    builder.add_node("execute_agreement", _timed("execute_agreement", execute_agreement))
+    builder.add_node("reconcile_agreement", _timed("reconcile_agreement", reconcile_agreement))
+    builder.add_node("plan_response", _timed("plan_response", plan_from_route))
+    builder.add_node("escalate", _timed("escalate", escalate))
+    builder.add_node("render_and_validate", _timed("render_and_validate", render_and_validate))
+    builder.add_node("compact_context", _timed("compact_context", compact_context))
 
     builder.add_edge(START, "guard_rules")
     builder.add_edge(START, "guard_classifier")

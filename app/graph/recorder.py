@@ -40,6 +40,9 @@ class TurnRecorder:
     llm_calls: list[LLMCallRecord] = field(default_factory=list)
     trajectory: list[str] = field(default_factory=list)
     log_lines: list[str] = field(default_factory=list)
+    # Cumulative milliseconds spent on each named node during the current turn; the evaluator
+    # surfaces it as p95 per node so a slow node is visible without parsing events.
+    node_latencies: dict[str, float] = field(default_factory=dict)
     max_tool_calls: int | None = None
     max_llm_calls: int | None = None
     _turn_tool_calls: int = 0
@@ -48,6 +51,7 @@ class TurnRecorder:
     def start_turn(self) -> None:
         self._turn_tool_calls = 0
         self._turn_llm_calls = 0
+        self.node_latencies.clear()
 
     def record_event(self, event_type: str, **payload: Any) -> None:
         self.events.append({"type": event_type, **payload})
@@ -80,6 +84,12 @@ class TurnRecorder:
 
     def record_step(self, name: str) -> None:
         self.trajectory.append(name)
+
+    def record_node_latency(self, name: str, latency_ms: float) -> None:
+        """Add wall-clock time spent inside a named node (graph or tool layer)."""
+        if latency_ms < 0:
+            return
+        self.node_latencies[name] = self.node_latencies.get(name, 0.0) + latency_ms
 
     def record_log(self, message: str) -> None:
         self.log_lines.append(message)

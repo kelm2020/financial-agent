@@ -222,6 +222,8 @@ class AgentSession:
             latency_ms=latency,
             llm_latency_ms=sum(item.latency_ms for item in llm_calls),
             llm_tasks=tuple(item.task for item in llm_calls),
+            llm_latencies_ms=tuple(item.latency_ms for item in llm_calls),
+            node_latencies_ms=dict(self.recorder.node_latencies),
         )
         self.observations.append(observation)
         return observation
