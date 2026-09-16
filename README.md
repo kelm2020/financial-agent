@@ -21,7 +21,8 @@ modelo ni un mensaje del usuario pueden elegir sobre qué cuenta opera.
 | Decisiones agentic (ruteo, confirmación, errores, contexto) | [Arquitectura y decisiones](#arquitectura-y-decisiones) |
 | Estrategia y resultados de evaluación | [Evaluación y resultados](#evaluación-y-resultados) |
 | Producción, escala, latencia y costos | [Latencia y costo medidos](#latencia-y-costo-medidos) · [Cómo pienso llevarlo a producción](#cómo-pienso-llevarlo-a-producción) |
-| Voz / Realtime | [Qué cambiaría para Voice AI / Realtime](#qué-cambiaría-para-voice-ai--realtime) |
+| El costo subió 4× y la latencia supera los 4 s: cómo lo investigaría | [Cómo investigaría: "El costo subió 4× y la latencia supera los 4 s"](#cómo-investigaría-el-costo-subió-4-y-la-latencia-supera-los-4-s) |
+| Tiempo real (texto) / Voz | [Qué cambiaría si el usuario esperara una respuesta en tiempo real](#qué-cambiaría-si-el-usuario-esperara-una-respuesta-en-tiempo-real) · [Qué cambiaría para Voice AI / Realtime](#qué-cambiaría-para-voice-ai--realtime) |
 | Qué no implementé y por qué (F5, parte de F6, F7) | [Por qué no prioricé F5, parte de F6 y F7](#por-qué-no-prioricé-f5-parte-de-f6-y-f7-y-cómo-las-resolvería) · [Estado del challenge](#estado-del-challenge) |
 | Entregables (repo, README, casos, diagrama, evaluación) | [Cómo cubro los entregables](#cómo-cubro-los-entregables) |
 
@@ -54,7 +55,7 @@ El proyecto consta de 8 fases:
 | **F3 · Agente de chat** | Grafo async, acuerdos en dos fases, medio de pago elegible, contexto, streaming validado, locks, auditoría y derivaciones. | Cerrado para este corte: la suite aplicable pasa y los gates live se reproducen con configuración congelada. |
 | **F4 · Evaluación** | Suites canónica, held-out y ciega, pruebas de políticas, guardrails, simulador, judge calibrado y `pass^k`, con el runner concurrente y métricas p95 por nodo y por tarea. UI para facilitar testeo(más comodo) | Cerrada para este corte: cada reporte ya publica su `prompt_fingerprint` como hash de configuración. Pendiente real, sin bloquear el corte: ampliar las etiquetas humanas del camino generativo y resolver C-51 (sin resolver hoy, ver [Límites que conservo visibles](#límites-que-conservo-visibles)). |
 | **F5 · Seguridad y aislamiento** | Controles de aplicación, JWT local, protección de entradas y salidas y auditoría con HMAC. | **Diferida.** Implementaré RLS con rol no dueño, `FORCE ROW LEVEL SECURITY` y `SET LOCAL`; probaré bypass de controles de aplicación. Completaré IdP/OBO, aislamiento de caché, PII, cifrado y retención. Exigiré esta fase antes de usar datos reales. |
-| **F6 · Producción medida** | Persistencia, serialización, métricas de evaluación, latencia por ruta y por etapa, instrumentación OpenTelemetry en el runtime, con trazas verificadas llegando a Langfuse. | **La fase 6 esta Parcialmente hecha** (ver [detalle](#por-qué-no-prioricé-f5-f6-y-f7-y-cómo-las-resolvería)). Falta la prueba de carga con tráfico concurrente real; integraré el experimento de regresión de caching en CI nightly. No asumo escala por tener un servidor async. |
+| **F6 · Producción medida** | Persistencia, serialización, métricas de evaluación, latencia por ruta y por etapa, instrumentación OpenTelemetry en el runtime, con trazas verificadas llegando a Langfuse. | **La fase 6 esta Parcialmente hecha** (ver [detalle](#por-qué-no-prioricé-f5-parte-de-f6-y-f7-y-cómo-las-resolvería)). Falta la prueba de carga con tráfico concurrente real; integraré el experimento de regresión de caching en CI nightly. No asumo escala por tener un servidor async. |
 | **F7 · Voice AI / Realtime** | Documentada la evolución; tres invariantes pendientes. Admito sólo el canal chat. | **Diferida.** Primero identidad por niveles, confirmación robusta y continuidad entre llamadas, testeables sin audio; después STT, TTS, interrupciones y transferencia. |
 | **F8 · Entrega** | Este README, con ejecución, arquitectura, decisiones, resultados y pendientes. |  |
 
@@ -353,7 +354,7 @@ con credenciales de producción, tráfico real y telefonía — ninguno de los c
 challenge ejercita. Meterles tiempo antes de tener F0-F4 probado y medido habría sido optimizar
 una amenaza que todavía no existe en este entorno, a costa de dejar sin medir lo que sí se prueba
 en cada turno. El detalle de **por qué cada una y cómo la resolvería** está más abajo, en
-["Por qué no prioricé F5, parte de F6 y F7"](#por-qué-no-prioricé-f5-f6-y-f7-y-cómo-las-resolvería).
+["Por qué no prioricé F5, parte de F6 y F7"](#por-qué-no-prioricé-f5-parte-de-f6-y-f7-y-cómo-las-resolvería).
 
 Para el corte sugerido de cuatro horas habría priorizado un recorrido completo y demostrable:
 mock, política, consulta, propuesta, confirmación, RAG acotado y casos de prueba. **Mi desarrollo
@@ -470,7 +471,7 @@ presupuesto a cuatro llamadas al modelo para poder verificar la respuesta, decis
 > Para el corrector: la diferencia entre "implementado" y "diferido" es explícita en cada fila.
 > Un test `xfail` no cuenta como protección implementada, sólo como una especificación pendiente (son test hechos para fases del proyecto a implementar a futuro pero que realice desde el momento 0 siempre pensando en encarar el proyecto por fases hasta produccion).
 > Detalle de qué prueba cada uno, por qué no se priorizó y cómo lo resolvería en
-> ["Por qué no prioricé F5, F6 y F7"](#por-qué-no-prioricé-f5-f6-y-f7-y-cómo-las-resolvería).
+> ["Por qué no prioricé F5, parte de F6 y F7"](#por-qué-no-prioricé-f5-parte-de-f6-y-f7-y-cómo-las-resolvería).
 
 <details>
 <summary><strong>Qué prueba cada <code>xfail</code></strong> (7 tests, todos en <code>tests/test_invariants.py</code>)</summary>
@@ -571,24 +572,48 @@ esfuerzo de razonamiento de una tarea. El reporte ya registra la concurrencia; t
 modelos, esfuerzo por tarea y timeout para que dos corridas sean distinguibles.
 
 
-### Cómo investigaría "el costo subió 4× y la respuesta supera los 4 s"
+### Cómo investigaría: "El costo subió 4× y la latencia supera los 4 s"
 
-1. **Fijaría una comparación equivalente.** Mismo tipo de conversación y período, separando costo por
-   conversación iniciada y resuelta, latencia total y primera respuesta útil.
-2. **Descompondría por etapa**, como hice arriba: modelo, tokens de entrada/salida, caché, reintentos,
-   número de llamadas, retrieval y esperas. Buscaría cambios de prompt, corpus, configuración y carga
-   antes de atribuir la regresión al proveedor.
-3. **Probaría una hipótesis por vez** con criterio de reversión fijado antes de correr el experimento.
-   Las cinco causas más probables, con su señal en la traza:
-   - **Prompt caching roto** → `cached_tokens` cae a ~0. Fix: estabilizar el prefijo estático y reordenar
-     dinámico al final.
-   - **Contexto creció** → `input_tokens` subiendo turno a turno. Fix: compactación, top-k menor.
-   - **Más llamadas LLM** → `steps/turn` sube. Fix: revisar regeneración y ruteo ambiguo.
-   - **Modelo/reasoning cambió** → más tokens de razonamiento. Fix: pinear por entorno, validar con
-     suite antes de cambiar.
-   - **Saturación del proveedor** → p95 sube sin cambio de código, 429. Fix: backpressure y fallback.
-4. **Validaría el resultado completo.** Repetiría gates y carga con caché fría y caliente, publicaría
-   costo y percentiles antes/después, y desplegaría gradualmente con reversión.
+Un salto simultáneo en costo (4×) y latencia suele señalar un problema en la capa de inferencia o en
+el flujo del grafo, más que en la base de datos o en la red. Aplicaría un diagnóstico metódico en
+4 pasos:
+
+**1. Aislar la muestra y establecer una línea base idéntica**
+
+- **Normalizar el tráfico**: comparar ventanas idénticas (mismo volumen, mix de clientes y canales)
+  filtrando por conversaciones resueltas vs. abandonadas.
+- **Segmentar por ruta del grafo**: aislar métricas para flujos deterministas (saldo, opciones) frente
+  al flujo generativo de política (RAG + verificación semántica), que estructuralmente tiene mayor
+  costo y latencia.
+
+**2. Descomponer la traza en Langfuse / OpenTelemetry**
+
+Contrastar el percentil p95 y los promedios contra el baseline saludable a lo largo de tres
+dimensiones clave:
+
+- **Distribución de rutas** (`route`): ¿hubo un desvío anómalo hacia el camino de política por un
+  drift en el clasificador de intenciones?
+- **Conteo de invocaciones por turno** (`steps/turn`): ¿se dispararon reintentos o ciclos de
+  corrección en el nodo de validación (`render_and_validate`)?
+- **Perfil de tokens** (input / output / reasoning / cached): diferenciar si el costo creció por
+  contexto acumulado, por degradación de caché o por verborragia del modelo.
+
+**3. Diagnóstico por hipótesis, señal en traza y mitigación**
+
+| Causa raíz probable | Señal inequívoca en la traza (OTel/Langfuse) | Acción correctiva (fix) |
+|---|---|---|
+| Prompt caching invalidado | `cached_tokens` cae a ~0 en turnos avanzados; `input_tokens` estables | Fijar prefijos estáticos (system prompt + KB fija) y asegurar que las variables volátiles (historial, hora, saldo) se ubiquen estrictamente al final |
+| Explosión de reasoning / salida | `output_tokens` o `reasoning_tokens` se multiplican; latencia concentrada en la generación | Fijar `reasoning_effort="low"` en tareas de clasificación/extracción y ajustar límites estrictos de `max_tokens` |
+| Inflación de contexto en el historial | `input_tokens` escala de forma superlineal turno a turno | Ajustar la ventana deslizante (ej. últimos 6 turnos) o resumir estado previo con un contrato estructurado en lugar de concatenar texto libre |
+| Drift o desbalance hacia la ruta RAG | El p95 global colapsa porque la ruta de política pasa a representar el 40 % del tráfico (vs. el 5 % histórico) | Re-calibrar los few-shots y el threshold del router determinista para evitar falsos positivos hacia RAG |
+| Saturación / throttling del proveedor | TTFT alto con volumen de tokens normal; presencia de status 429 o reintentos por backoff | Implementar circuit breaker con fallback a un modelo alternativo o aplicar encolamiento con control de concurrencia |
+
+**4. Experimentación, validación y rollback**
+
+- **Aislamiento en staging**: reproducir la anomalía usando la suite canónica (`make eval-live`)
+  fijando el `prompt_fingerprint` y evaluando tanto en frío como con caché caliente.
+- **Prueba A/B con canary**: desplegar la corrección a un 5–10 % del tráfico monitoreando que el p95
+  por turno retorne por debajo de los 3 s sin degradar `pass^k` ni el cumplimiento de política.
 
 
 ## Casos de clientes y evidencia
@@ -797,6 +822,41 @@ almacenamiento inmutable.
 
 No prioricé fine-tuning ni multiagente: primero necesito demostrar un beneficio frente al flujo
 actual con datos propios.
+
+## Qué cambiaría si el usuario esperara una respuesta en tiempo real
+
+*"¿Qué cambiarías en tu arquitectura si el usuario espera una respuesta prácticamente en tiempo
+real, en lugar de una interacción basada en mensajes?"*
+
+Hoy ya transmito por SSE, pero es streaming "por mensaje discreto validado", no tiempo real en
+sentido estricto: cada cláusula espera a que `render_and_validate` la confirme completa (cifras,
+citas, contenido) antes de emitirla, así que el cliente ve texto aparecer en bloques, no letra por
+letra. Si la expectativa fuera percepción real-time, cambiaría varias capas:
+
+1. **Separaría "percepción de velocidad" de "validación".** Agregaría un stream de vista previa a
+   nivel de token (efecto de tipeo, sin validar) que se reemplaza por el texto validado apenas
+   `render_and_validate` lo confirma — nunca al revés, para no romper la garantía que hoy sostengo
+   de no mostrar nunca algo no verificado.
+2. **Rompería la cadena serial del camino de política.** Hoy `grounded_response` y
+   `policy_answer_check` corren uno después del otro (~18 s de techo medido en la corrida del
+   16/09). Movería el chequeo a incremental por claim en vez de sobre la respuesta completa: la
+   primera oración validada sale mientras la siguiente todavía se verifica, en vez de esperar el
+   final de las dos llamadas.
+3. **Cambiaría SSE por un WebSocket persistente.** SSE reabre la conexión en cada POST; un socket
+   persistente evita ese overhead y habilita señales bidireccionales — el cliente podría "cortar"
+   una generación en curso, el equivalente textual de un barge-in de voz.
+4. **Adelantaría trabajo independiente en paralelo.** Hoy `guard_classifier → route → hydrate/RAG`
+   corren en ese orden estricto porque cada paso puede vetar al siguiente. El retrieval de política
+   es independiente de la clasificación de guardrails en la gran mayoría de los casos: lo correría
+   en paralelo y descartaría el resultado si el guardrail termina bloqueando, en vez de pagar esa
+   latencia siempre en serie.
+5. **Repensaría el "filler".** Hoy "Dejame revisar la política, un segundo" es un mensaje de espera
+   estático. En un modo real-time lo reemplazaría por progreso incremental real (qué sección se
+   está buscando, qué se está verificando), no por una frase fija.
+
+No lo implementé porque no era lo que priorizaba este corte: es una capa de protocolo y UX
+ortogonal a la seguridad y el grounding que sí medí, y compite por el mismo presupuesto digamos que ya
+gasté en F0-F4.
 
 ## Qué cambiaría para Voice AI / Realtime
 
