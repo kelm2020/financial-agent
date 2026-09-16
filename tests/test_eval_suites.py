@@ -224,7 +224,7 @@ async def test_concurrent_runs_score_exactly_like_sequential_ones() -> None:
     assert sequential.concurrency == 1
     assert concurrent.pass_to_k == sequential.pass_to_k
     assert concurrent.runs == sequential.runs
-    ignored = {"p95_turn_latency_ms"}
+    ignored = {"p95_turn_latency_ms", "latency_by_node_ms", "latency_by_task_ms"}
     assert concurrent.metrics.model_dump(exclude=ignored) == sequential.metrics.model_dump(
         exclude=ignored
     )

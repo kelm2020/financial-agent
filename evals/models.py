@@ -164,6 +164,11 @@ class TurnObservation(EvalModel):
     latency_ms: float = Field(ge=0)
     llm_latency_ms: float = Field(ge=0)
     llm_tasks: tuple[str, ...] = ()
+    # Per-call latency, parallel to ``llm_tasks``. The eval runner uses it to publish p95 by
+    # task and to attribute cost at the granularity the provider usage records offer.
+    llm_latencies_ms: tuple[float, ...] = ()
+    # Latencies in milliseconds per OTel span the runtime emitted for this turn.
+    node_latencies_ms: dict[str, float] = Field(default_factory=dict)
 
     @property
     def model_authored(self) -> bool:
@@ -231,6 +236,12 @@ class EvalMetrics(EvalModel):
     output_tokens: int = Field(default=0, ge=0)
     cached_tokens: int = Field(default=0, ge=0)
     total_cost_usd: float | None = Field(default=None, ge=0)
+    # Per-node and per-task latency percentiles, populated when spans are enabled. Names follow
+    # the OTel spans the runtime emits: ``conversation.turn``, ``hydrate.business_reads``,
+    # ``execute_tool.read`` and ``gen_ai.inference``.
+    latency_by_node_ms: dict[str, float] = Field(default_factory=dict)
+    latency_by_task_ms: dict[str, float] = Field(default_factory=dict)
+    token_breakdown: dict[str, dict[str, int]] = Field(default_factory=dict)
     results: tuple[CaseResult, ...]
     gate_failures: tuple[str, ...]
 
