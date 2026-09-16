@@ -84,6 +84,7 @@ class OpenAIResponsesLLM:
         reasoning_effort: ReasoningEffort | None = None,
         client: httpx.AsyncClient | None = None,
         task_models: Mapping[str, str] | None = None,
+        task_reasoning_effort: Mapping[str, ReasoningEffort] | None = None,
     ) -> None:
         if not api_key.strip():
             raise ValueError("OpenAI API key is required")
@@ -96,6 +97,11 @@ class OpenAIResponsesLLM:
         # spent 560-700 tokens on a guard classification and ~10 % of live turns came back
         # incomplete; "low" keeps classifications near 250 tokens.
         self._reasoning = {"effort": reasoning_effort} if reasoning_effort else None
+        # Deciding a label is not the same work as adjudicating an answer, and the difference is
+        # seconds on the turn's critical path. A task that only classifies can say so here.
+        self._task_reasoning = {
+            task: {"effort": effort} for task, effort in (task_reasoning_effort or {}).items()
+        }
         self._owns_client = client is None
         self._usage_records: list[ProviderUsage] = []
         self._client = client or httpx.AsyncClient(
@@ -120,6 +126,7 @@ class OpenAIResponsesLLM:
             if message.get("role") != "system"
         ]
         model = self._task_models.get(task, self._model)
+        reasoning = self._task_reasoning.get(task, self._reasoning)
         schema_name = re.sub(r"[^a-zA-Z0-9_-]", "_", f"{task}_{response_model.__name__}")[:64]
         response = await self._client.post(
             "/responses",
@@ -128,7 +135,7 @@ class OpenAIResponsesLLM:
                 "instructions": instructions or None,
                 "input": model_input,
                 "max_output_tokens": self._max_output_tokens,
-                **({"reasoning": self._reasoning} if self._reasoning else {}),
+                **({"reasoning": reasoning} if reasoning else {}),
                 "store": False,
                 "text": {
                     "format": {
@@ -202,21 +209,46 @@ class OpenAIResponsesLLM:
             await self._client.aclose()
 
 
+# Tasks that pick a label out of a closed set rather than compose an answer. Measured against the
+# three policy questions of the latency breakdown, "minimal" took the guard classifier from about
+# 2.0 s to 1.3 s and the answer check from about 10.4 s to 5.7 s, which is most of a policy turn.
+# The check is a safety control, so the effort it runs at is only defensible while the evaluation
+# holds grounded_answers and policy_compliance (ADR-011).
+CLASSIFICATION_TASKS: tuple[str, ...] = (
+    "guard_classifier",
+    "route",
+    "confirmation",
+    "policy_answer_check",
+)
+
+
 def build_agent_llm(
     *,
     api_key: str,
     model: str,
     check_model: str,
     max_output_tokens: int = 2000,
-    timeout_seconds: float = 20,
+    timeout_seconds: float = 45,
 ) -> OpenAIResponsesLLM:
     """The agent's client: its model for the turn and ``check_model`` for the policy answer check
-    (ADR-011). Every entry point builds it here, so no run measures a different pairing."""
+    (ADR-011). Every entry point builds it here, so no run measures a different pairing.
+
+    The timeout is well above the slowest measured call: at 20 s a policy answer that took 19.5 s
+    to generate was one hiccup away from failing the turn, and an LLM timeout is not caught on the
+    way out of the graph.
+    """
+    task_models = {"policy_answer_check": check_model}
+    # Effort follows the model that actually serves each task, not the turn's model: the check can
+    # run on a different one, and only gpt-5 models take the parameter.
+    serving = {task: task_models.get(task, model) for task in CLASSIFICATION_TASKS}
     return OpenAIResponsesLLM(
         api_key=api_key,
         model=model,
         max_output_tokens=max_output_tokens,
         timeout_seconds=timeout_seconds,
         reasoning_effort="low" if model.startswith("gpt-5") else None,
-        task_models={"policy_answer_check": check_model},
+        task_models=task_models,
+        task_reasoning_effort={
+            task: "minimal" for task, served_by in serving.items() if served_by.startswith("gpt-5")
+        },
     )

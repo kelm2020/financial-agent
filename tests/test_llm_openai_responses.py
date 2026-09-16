@@ -218,6 +218,79 @@ async def test_every_agent_entry_point_pairs_the_turn_model_with_the_check_model
         await adapter.aclose()
 
 
+async def test_tasks_that_only_classify_reason_less_than_the_one_that_writes() -> None:
+    """Effort is a measured choice, not a default, and the answer check is a safety control.
+
+    Composing an answer keeps "low"; picking a label out of a closed set drops to "minimal",
+    which is most of the seconds a policy turn spends. Whoever raises the check back up should
+    have a reason, and whoever lowers the generation should have an evaluation.
+    """
+    adapter = build_agent_llm(api_key="sk-test", model="gpt-5-nano", check_model="gpt-5-mini")
+    try:
+        assert adapter._task_reasoning == {
+            "guard_classifier": {"effort": "minimal"},
+            "route": {"effort": "minimal"},
+            "confirmation": {"effort": "minimal"},
+            "policy_answer_check": {"effort": "minimal"},
+        }
+        # The task that writes the customer's text is not in the table, so it keeps the default.
+        assert "grounded_response" not in adapter._task_reasoning
+        assert adapter._reasoning == {"effort": "low"}
+    finally:
+        await adapter.aclose()
+
+
+async def test_reasoning_effort_follows_the_model_that_serves_each_task() -> None:
+    """Only gpt-5 models take the parameter, and the check can run on a different one."""
+    adapter = build_agent_llm(api_key="sk-test", model="gpt-4.1-mini", check_model="gpt-5-mini")
+    try:
+        # The turn's model is not a gpt-5, so only the check carries an effort.
+        assert adapter._task_reasoning == {"policy_answer_check": {"effort": "minimal"}}
+        assert adapter._reasoning is None
+    finally:
+        await adapter.aclose()
+
+
+async def test_a_task_effort_overrides_the_client_default_in_the_request() -> None:
+    efforts: list[object] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        efforts.append(json.loads(request.content).get("reasoning"))
+        return httpx.Response(
+            200,
+            json={
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": '{"text":"x"}'}],
+                    }
+                ]
+            },
+        )
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.openai.test/v1"
+    )
+    adapter = OpenAIResponsesLLM(
+        api_key="sk-test",
+        model="gpt-5-nano",
+        reasoning_effort="low",
+        task_reasoning_effort={"guard_classifier": "minimal"},
+        client=client,
+    )
+    try:
+        for task in ("guard_classifier", "grounded_response"):
+            await adapter.complete(
+                task=task,
+                messages=({"role": "user", "content": "c"},),
+                response_model=GeneratedReply,
+            )
+    finally:
+        await client.aclose()
+
+    assert efforts == [{"effort": "minimal"}, {"effort": "low"}]
+
+
 async def test_usage_is_attributed_per_scope_when_calls_overlap() -> None:
     """Each scope is billed only for its own calls, even while other scopes are mid-flight.
 
