@@ -16,6 +16,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from app.obs.tracing import record_attribute, span
 from app.security.scope import CustomerScope
 from app.tools.schemas import (
     AgreementResponse,
@@ -221,57 +222,70 @@ class CollectionsGateway:
         response_model: type[T],
         failure_mode: str | None,
     ) -> ToolResult[T]:
-        try:
-            await self._breaker.before_call(operation)
-            async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(self.settings.tool_retry_attempts),
-                wait=wait_exponential_jitter(initial=0.01, max=0.05),
-                retry=retry_if_exception_type(_RetriableReadError),
-                reraise=True,
-            ):
-                with attempt:
-                    result = await self._request_once(
-                        "GET",
-                        path,
-                        operation=operation,
-                        scope=scope,
-                        response_model=response_model,
-                        failure_mode=failure_mode,
-                    )
-                    if _identity_mismatch(result.data, scope):
-                        # A record of another customer inside a 200 is a data-integrity
-                        # failure, not a transient one: retrying would fetch the same
-                        # corruption. The record never reaches the state.
-                        return ToolResult[T](
-                            status="upstream_error",
-                            data=None,
-                            message_for_model=(
-                                f"{operation} devolvió un registro que no corresponde al "
-                                "cliente de esta conversación."
-                            ),
-                            retriable=False,
-                            correlation_id=result.correlation_id,
+        with span(
+            "execute_tool.read",
+            attributes={
+                "tool.name": operation,
+                "tool.method": "GET",
+                "tool.path": path,
+                "app.customer_id": scope.customer_id,
+            },
+        ) as tool_span:
+            try:
+                await self._breaker.before_call(operation)
+                async for attempt in AsyncRetrying(
+                    stop=stop_after_attempt(self.settings.tool_retry_attempts),
+                    wait=wait_exponential_jitter(initial=0.01, max=0.05),
+                    retry=retry_if_exception_type(_RetriableReadError),
+                    reraise=True,
+                ):
+                    with attempt:
+                        result = await self._request_once(
+                            "GET",
+                            path,
+                            operation=operation,
+                            scope=scope,
+                            response_model=response_model,
+                            failure_mode=failure_mode,
                         )
-                    if result.retriable:
-                        await self._breaker.record_failure(operation)
-                        raise _RetriableReadError(result)
-                    if result.status == "ok":
-                        await self._breaker.record_success(operation)
-                    return result
-        except _RetriableReadError as exc:
-            return exc.result
-        except CircuitOpenError:
-            return ToolResult[T](
-                status="upstream_error",
-                message_for_model="Circuito abierto: el servicio falló repetidamente.",
-                retriable=False,
-                correlation_id=uuid4().hex,
+                        if _identity_mismatch(result.data, scope):
+                            # A record of another customer inside a 200 is a data-integrity
+                            # failure, not a transient one: retrying would fetch the same
+                            # corruption. The record never reaches the state.
+                            record_attribute(tool_span, "tool.status", "identity_mismatch")
+                            return ToolResult[T](
+                                status="upstream_error",
+                                data=None,
+                                message_for_model=(
+                                    f"{operation} devolvió un registro que no corresponde al "
+                                    "cliente de esta conversación."
+                                ),
+                                retriable=False,
+                                correlation_id=result.correlation_id,
+                            )
+                        if result.retriable:
+                            await self._breaker.record_failure(operation)
+                            raise _RetriableReadError(result)
+                        if result.status == "ok":
+                            await self._breaker.record_success(operation)
+                        record_attribute(tool_span, "tool.status", result.status)
+                        return result
+            except _RetriableReadError as exc:
+                record_attribute(tool_span, "tool.status", exc.result.status)
+                return exc.result
+            except CircuitOpenError:
+                record_attribute(tool_span, "tool.status", "circuit_open")
+                return ToolResult[T](
+                    status="upstream_error",
+                    message_for_model="Circuito abierto: el servicio falló repetidamente.",
+                    retriable=False,
+                    correlation_id=uuid4().hex,
+                )
+            # AsyncRetrying with reraise=True always returns from inside the loop or
+            # raises _RetriableReadError once attempts are exhausted; this is unreachable.
+            raise AssertionError(  # pragma: no cover
+                "unreachable: AsyncRetrying always returns or re-raises"
             )
-        # AsyncRetrying with reraise=True always returns from inside the loop or
-        # raises _RetriableReadError once attempts are exhausted; this is unreachable.
-        raise AssertionError(  # pragma: no cover
-            "unreachable: AsyncRetrying always returns or re-raises"
-        )
 
     async def _write[T: BaseModel](
         self,

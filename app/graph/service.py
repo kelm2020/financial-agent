@@ -14,6 +14,7 @@ from app.graph.effects import transfer_to_human
 from app.graph.recorder import TurnBudgetExceeded, TurnRecorder
 from app.guards.output import ValidationContext
 from app.guards.preflight import PreflightPolicy, preflight_message
+from app.obs.tracing import record_attribute, span
 from app.runtime.conversation_coordinator import ConversationBusyError, ConversationRunCoordinator
 from app.runtime.rate_limit import SlidingWindowRateLimiter
 
@@ -256,68 +257,77 @@ class ConversationAgentService:
         events: list[dict[str, str]] = []
         result: dict[str, Any] = {}
         status_sent = False
-        async with self._coordinator.hold(turn.conversation_id):
-            context.recorder.record_event("lock_acquired")
-            graph_input: dict[str, Any] = {
+        with span(
+            "conversation.turn",
+            attributes={
                 "conversation_id": turn.conversation_id,
-                "customer_id": turn.customer_id,
-                "channel": turn.record.channel,
-                # Only the sanitized text ever becomes a HumanMessage or reaches a checkpoint.
-                "messages": [HumanMessage(content=outcome.sanitized_text)],
-                "last_user_text": outcome.sanitized_text,
-                "detection_text": outcome.detection_text,
-                "preflight_result": outcome.result,
-                # Turn-scoped outputs must not leak forward from the previous checkpoint.
-                "guard_rule_result": None,
-                "guard_model_result": None,
-                "route_result": None,
-                "confirmation_candidate": None,
-                "guard_verdict": None,
-                "guard_flags": [],
-                "response_plan": None,
-                "retrieved": [],
-                "selected_source": "",
-                "http_status": 200,
-            }
-            try:
-                async for mode, chunk in self._graph.astream(
-                    graph_input,
-                    {"configurable": {"thread_id": turn.record.thread_id}},
-                    context=turn.turn_context,
-                    stream_mode=["custom", "values"],
-                ):
-                    if mode == "values":
-                        result = chunk
-                        status = int(chunk.get("http_status", 200))
-                        if status != 200 and not events and not status_sent:
-                            # Nothing was emitted yet, so the response headers can still carry it.
-                            queue.put_nowait(("status", status))
-                            status_sent = True
-                    elif _is_validated_event(chunk):
-                        event = {"event": chunk["event"], "data": chunk["data"]}
-                        events.append(event)
+                "app.customer_id": turn.customer_id,
+                "turn.characters": len(outcome.sanitized_text),
+            },
+        ) as turn_span:
+            async with self._coordinator.hold(turn.conversation_id):
+                context.recorder.record_event("lock_acquired")
+                graph_input: dict[str, Any] = {
+                    "conversation_id": turn.conversation_id,
+                    "customer_id": turn.customer_id,
+                    "channel": turn.record.channel,
+                    # Only the sanitized text ever becomes a HumanMessage or reaches a checkpoint.
+                    "messages": [HumanMessage(content=outcome.sanitized_text)],
+                    "last_user_text": outcome.sanitized_text,
+                    "detection_text": outcome.detection_text,
+                    "preflight_result": outcome.result,
+                    # Turn-scoped outputs must not leak forward from the previous checkpoint.
+                    "guard_rule_result": None,
+                    "guard_model_result": None,
+                    "route_result": None,
+                    "confirmation_candidate": None,
+                    "guard_verdict": None,
+                    "guard_flags": [],
+                    "response_plan": None,
+                    "retrieved": [],
+                    "selected_source": "",
+                    "http_status": 200,
+                }
+                try:
+                    async for mode, chunk in self._graph.astream(
+                        graph_input,
+                        {"configurable": {"thread_id": turn.record.thread_id}},
+                        context=turn.turn_context,
+                        stream_mode=["custom", "values"],
+                    ):
+                        if mode == "values":
+                            result = chunk
+                            status = int(chunk.get("http_status", 200))
+                            if status != 200 and not events and not status_sent:
+                                # Nothing was emitted yet; headers can still carry it.
+                                queue.put_nowait(("status", status))
+                                status_sent = True
+                        elif _is_validated_event(chunk):
+                            event = {"event": chunk["event"], "data": chunk["data"]}
+                            events.append(event)
+                            queue.put_nowait(("event", event))
+                except TurnBudgetExceeded as exc:
+                    exhausted = await self._budget_exhausted(
+                        turn.conversation_id, context, kind=exc.kind, limit=exc.limit
+                    )
+                    for event in exhausted.events:
                         queue.put_nowait(("event", event))
-            except TurnBudgetExceeded as exc:
-                exhausted = await self._budget_exhausted(
-                    turn.conversation_id, context, kind=exc.kind, limit=exc.limit
-                )
-                for event in exhausted.events:
-                    queue.put_nowait(("event", event))
-                return exhausted
-        response = next(
-            (
-                str(message.content)
-                for message in reversed(result.get("messages", []))
-                if isinstance(message, AIMessage)
-            ),
-            "",
-        )
-        return TurnResult(
-            text=response,
-            state=result,
-            events=tuple(events),
-            http_status=int(result.get("http_status", 200)),
-        )
+                    return exhausted
+            response = next(
+                (
+                    str(message.content)
+                    for message in reversed(result.get("messages", []))
+                    if isinstance(message, AIMessage)
+                ),
+                "",
+            )
+            record_attribute(turn_span, "turn.response_length", len(response))
+            return TurnResult(
+                text=response,
+                state=result,
+                events=tuple(events),
+                http_status=int(result.get("http_status", 200)),
+            )
 
     @staticmethod
     async def _budget_exhausted(

@@ -11,6 +11,8 @@ from typing import Any, Literal
 import httpx
 from pydantic import BaseModel
 
+from app.obs.tracing import record_attribute, span
+
 ReasoningEffort = Literal["minimal", "low", "medium", "high"]
 
 
@@ -128,42 +130,53 @@ class OpenAIResponsesLLM:
         model = self._task_models.get(task, self._model)
         reasoning = self._task_reasoning.get(task, self._reasoning)
         schema_name = re.sub(r"[^a-zA-Z0-9_-]", "_", f"{task}_{response_model.__name__}")[:64]
-        response = await self._client.post(
-            "/responses",
-            json={
-                "model": model,
-                "instructions": instructions or None,
-                "input": model_input,
-                "max_output_tokens": self._max_output_tokens,
-                **({"reasoning": reasoning} if reasoning else {}),
-                "store": False,
-                "text": {
-                    "format": {
-                        "type": "json_schema",
-                        "name": schema_name,
-                        "schema": _strict_json_schema(response_model.model_json_schema()),
-                        "strict": True,
-                    }
-                },
+        with span(
+            "gen_ai.inference",
+            attributes={
+                "gen_ai.task": task,
+                "gen_ai.model": model,
+                "gen_ai.max_output_tokens": self._max_output_tokens,
             },
-        )
-        response.raise_for_status()
-        payload: dict[str, Any] = response.json()
-        usage = payload.get("usage")
-        if isinstance(usage, dict):
-            details = usage.get("input_tokens_details")
-            cached = details.get("cached_tokens", 0) if isinstance(details, dict) else 0
-            record = ProviderUsage(
-                task=task,
-                model=model,
-                input_tokens=int(usage.get("input_tokens", 0)),
-                output_tokens=int(usage.get("output_tokens", 0)),
-                cached_tokens=int(cached),
+        ) as llm_span:
+            response = await self._client.post(
+                "/responses",
+                json={
+                    "model": model,
+                    "instructions": instructions or None,
+                    "input": model_input,
+                    "max_output_tokens": self._max_output_tokens,
+                    **({"reasoning": reasoning} if reasoning else {}),
+                    "store": False,
+                    "text": {
+                        "format": {
+                            "type": "json_schema",
+                            "name": schema_name,
+                            "schema": _strict_json_schema(response_model.model_json_schema()),
+                            "strict": True,
+                        }
+                    },
+                },
             )
-            self._usage_records.append(record)
-            sink = _usage_sink.get()
-            if sink is not None:
-                sink.append(record)
+            response.raise_for_status()
+            payload: dict[str, Any] = response.json()
+            usage = payload.get("usage")
+            if isinstance(usage, dict):
+                details = usage.get("input_tokens_details")
+                cached = details.get("cached_tokens", 0) if isinstance(details, dict) else 0
+                record = ProviderUsage(
+                    task=task,
+                    model=model,
+                    input_tokens=int(usage.get("input_tokens", 0)),
+                    output_tokens=int(usage.get("output_tokens", 0)),
+                    cached_tokens=int(cached),
+                )
+                self._usage_records.append(record)
+                sink = _usage_sink.get()
+                if sink is not None:
+                    sink.append(record)
+                record_attribute(llm_span, "gen_ai.usage.input_tokens", record.input_tokens)
+                record_attribute(llm_span, "gen_ai.usage.output_tokens", record.output_tokens)
+                record_attribute(llm_span, "gen_ai.usage.cached_tokens", record.cached_tokens)
         status = payload.get("status")
         if status == "incomplete":
             details = payload.get("incomplete_details")
