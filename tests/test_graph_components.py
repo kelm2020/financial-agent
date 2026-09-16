@@ -652,7 +652,13 @@ async def test_api_edges_busy_conversation_health_and_lifespan() -> None:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=api), base_url="http://agent"
     ) as client:
-        assert (await client.get("/health")).json() == {"status": "ok"}
+        # offline_settings has no OPENAI_API_KEY, so RAG stays off: this is the same signal
+        # `/health` gives a developer whose .env change never reached a running process.
+        assert (await client.get("/health")).json() == {
+            "status": "ok",
+            "rag_enabled": False,
+            "kb_chunks": None,
+        }
         created = await client.post("/conversations", json={}, headers=headers)
         conversation_id = created.json()["conversation_id"]
         service: ConversationAgentService = api.state.agent_service
@@ -668,6 +674,48 @@ async def test_api_edges_busy_conversation_health_and_lifespan() -> None:
         _bearer_token("Basic abc")
     assert missing.value.status_code == 401
     assert _bearer_token("Bearer abc") == "abc"
+
+
+async def test_health_reports_rag_enabled_when_a_retriever_is_wired() -> None:
+    # A stale process is exactly the failure this field exists to catch: OPENAI_API_KEY added to
+    # .env after boot never reaches an already-running uvicorn --reload or compose container
+    # (Settings is cached once per process), so every policy question silently derives. `/health`
+    # makes that observable without reading logs.
+    settings = offline_settings()
+    api = create_app(settings=settings, backend_app=mock_app, retriever=StaticRetriever([]))
+    async with api.router.lifespan_context(api):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=api), base_url="http://agent"
+        ) as client:
+            # kb_chunks stays None here: a retriever injected directly (as tests do) carries no
+            # store we can introspect. Only the app's own construction paths (_local_retriever,
+            # the pgvector branch) populate it — see test_health_reports_kb_chunks_from_the_store
+            # below for the case this field exists to catch: a real store with zero rows.
+            assert (await client.get("/health")).json() == {
+                "status": "ok",
+                "rag_enabled": True,
+                "kb_chunks": None,
+            }
+
+
+async def test_local_retriever_returns_a_store_with_the_kb_chunk_count() -> None:
+    # rag_enabled only says a retriever object was built, not that it has data: a pgvector volume
+    # recreated by `docker compose down -v` answers rag_enabled: true and (before this fix)
+    # nothing about the store being empty until `make ingest` runs — indistinguishable from a
+    # real abstention. `/health`'s kb_chunks reads store.metadata() directly, so this exercises
+    # the exact call `_local_retriever` (the make-run/make-up-without-postgres path) wires it to.
+    # The committed embedding cache (data/query_cache.json) covers every kb/ chunk already, so a
+    # fake key never reaches the network.
+    from contextlib import AsyncExitStack
+
+    from app.main import _local_retriever
+
+    settings = offline_settings(openai_api_key="sk-fake-not-a-real-key")
+    async with AsyncExitStack() as stack:
+        _retriever, store = await _local_retriever(stack, settings, FixedClock(REFERENCE_NOW))
+        metadata = await store.metadata()
+    assert metadata is not None
+    assert metadata.chunk_count > 0
 
 
 def test_guardrail_report_script(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:

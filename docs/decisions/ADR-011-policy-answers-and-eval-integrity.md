@@ -6,8 +6,7 @@
 
 ## Contexto
 
-Una auditoría del repositorio contra la especificación de F4 (blueprint v3.3) encontró dos grupos
-de problemas en el trabajo que todavía no estaba commiteado.
+Durante una revisión profunda encontre dos grupos de problemas.
 
 **Pipeline de política.** Una llamada de soporte (`policy_support`) leía las 35 secciones de la
 base, es decir, la base completa. La generación y un chequeo semántico sumaban dos llamadas más. El
@@ -100,7 +99,7 @@ literales con léxicos escritos después (`app/graph/ontology.py`, `app/graph/ro
 - **Se eliminan los oráculos de nivel A.** `grounded_answers` de nivel A vuelve a salir del extracto
   real del gate.
 
-### 4. Gates y CI (§11.5, §11.6)
+### 4. Gates y CI
 
 - `evals/baselines.json` registra `tool_selection_f1` por suite. Una caída de más de 0,05 agrega
   `tool_selection_f1_regression`.

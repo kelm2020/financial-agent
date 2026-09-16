@@ -1,10 +1,3 @@
-"""Named guardrail contracts of blueprint §10.1.8.
-
-INV-22 (``test_streamed_clause_is_validated_before_emission``), INV-23
-(``test_model_classifier_cannot_lift_a_deterministic_block``) and INV-10's
-``test_number_in_words_outside_allowed_set_is_blocked`` live in ``tests/test_invariants.py``.
-"""
-
 from __future__ import annotations
 
 from datetime import date
