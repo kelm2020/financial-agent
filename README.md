@@ -759,7 +759,7 @@ https://github.com/user-attachments/assets/6317d440-27ff-468a-9238-361b27cfc5c5
 ```
 
 
-https://github.com/user-attachments/assets/a70e9655-af89-4da4-9ec7-400c057209d7
+https://github.com/user-attachments/assets/fcf36801-49ce-42f8-8548-34794d12eb4c
 
 
 Los seis comportamientos del challenge, con conversaciones independientes:
