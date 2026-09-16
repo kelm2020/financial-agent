@@ -54,7 +54,7 @@ El proyecto consta de 8 fases:
 | **F3 · Agente de chat** | Grafo async, acuerdos en dos fases, medio de pago elegible, contexto, streaming validado, locks, auditoría y derivaciones. | Cerrado para este corte: la suite aplicable pasa y los gates live se reproducen con configuración congelada. |
 | **F4 · Evaluación** | Suites canónica, held-out y ciega, pruebas de políticas, guardrails, simulador, judge calibrado y `pass^k`, con el runner concurrente y métricas p95 por nodo y por tarea. UI para facilitar testeo(más comodo) | Cerrada para este corte: cada reporte ya publica su `prompt_fingerprint` como hash de configuración. Pendiente real, sin bloquear el corte: ampliar las etiquetas humanas del camino generativo y resolver C-51 (sin resolver hoy, ver [Límites que conservo visibles](#límites-que-conservo-visibles)). |
 | **F5 · Seguridad y aislamiento** | Controles de aplicación, JWT local, protección de entradas y salidas y auditoría con HMAC. | **Diferida.** Implementaré RLS con rol no dueño, `FORCE ROW LEVEL SECURITY` y `SET LOCAL`; probaré bypass de controles de aplicación. Completaré IdP/OBO, aislamiento de caché, PII, cifrado y retención. Exigiré esta fase antes de usar datos reales. |
-| **F6 · Producción medida** | Persistencia, serialización, métricas de evaluación, latencia por ruta y por etapa, instrumentación OpenTelemetry en el runtime y exporter OTLP/HTTP hacia Langfuse. | **Diferida.** Mediré carga, fallos y límites distribuidos con OTel conectado; integraré el experimento de regresión de caching en CI nightly. No asumo escala por tener un servidor async. |
+| **F6 · Producción medida** | Persistencia, serialización, métricas de evaluación, latencia por ruta y por etapa, instrumentación OpenTelemetry en el runtime, con trazas verificadas llegando a Langfuse. | **La fase 6 esta Parcialmente hecha** (ver [detalle](#por-qué-no-prioricé-f5-f6-y-f7-y-cómo-las-resolvería)). Falta la prueba de carga con tráfico concurrente real; integraré el experimento de regresión de caching en CI nightly. No asumo escala por tener un servidor async. |
 | **F7 · Voice AI / Realtime** | Documentada la evolución; tres invariantes pendientes. Admito sólo el canal chat. | **Diferida.** Primero identidad por niveles, confirmación robusta y continuidad entre llamadas, testeables sin audio; después STT, TTS, interrupciones y transferencia. |
 | **F8 · Entrega** | Este README, con ejecución, arquitectura, decisiones, resultados y pendientes. |  |
 
@@ -103,7 +103,7 @@ pero sigo usando autenticación y backend de demostración. **Lo que sí cambia 
 los checkpoints, conversaciones y el índice de RAG son durables, hay Redis para rate limit
 distribuido, y Langfuse queda disponible en `http://localhost:3000` 
 
-Credenciales LangFuse
+Credenciales LangFuse:
 
 `admin@example.local` / `change-me-now`
 
@@ -353,7 +353,7 @@ con credenciales de producción, tráfico real y telefonía — ninguno de los c
 challenge ejercita. Meterles tiempo antes de tener F0-F4 probado y medido habría sido optimizar
 una amenaza que todavía no existe en este entorno, a costa de dejar sin medir lo que sí se prueba
 en cada turno. El detalle de **por qué cada una y cómo la resolvería** está más abajo, en
-["Por qué no prioricé F5, F6 y F7"](#por-qué-no-prioricé-f5-f6-y-f7-y-cómo-las-resolvería).
+["Por qué no prioricé F5, parte de F6 y F7"](#por-qué-no-prioricé-f5-f6-y-f7-y-cómo-las-resolvería).
 
 Para el corte sugerido de cuatro horas habría priorizado un recorrido completo y demostrable:
 mock, política, consulta, propuesta, confirmación, RAG acotado y casos de prueba. **Mi desarrollo
@@ -362,7 +362,7 @@ el mismo problema con persistencia, guardrails y evaluación. También agregué 
 que la consigna no exige, para facilitar las pruebas y grabar evidencia.
 
 
-## Por qué no prioricé F5, F6 y F7 (y cómo las resolvería)
+## Por qué no prioricé F5, parte de F6 y F7 (y cómo las resolvería)
 
 **F5 · Seguridad y aislamiento en base (RLS, IdP real, cifrado, retención)**
 
@@ -385,14 +385,39 @@ policy que la compara contra la fila. Los 4 tests que ya escribí —`test_rls_b
 tienen que pasar en verde antes de operar con datos reales. Sumaría IdP/OBO real (reemplazando el
 emisor local), cifrado de PII en reposo y una política de retención y borrado.
 
-**F6 · Producción medida (carga, fallos distribuidos, routing de modelos)**
+**F6 · Producción medida (carga, fallos distribuidos, routing de modelos) PARCIALMENTE HECHA**
 
-**A diferencia de F5 y F7, esta fase no está diferida — está parcial.** Ya construí y uso la mitad
+**A diferencia de F5 y F7, esta fase está hecha parcialmente.** Ya construí y uso la mitad
 de instrumentación que la fase pide: OTel con spans por turno, nodo, tool y llamada LLM; p95 por
 nodo y por tarea; costo por conversación; el experimento de regresión de prompt-caching. Son los
 números que este mismo README reporta en [Latencia y costo medidos](#latencia-y-costo-medidos). Lo
 que falta específicamente es la prueba de carga con tráfico concurrente real — eso es lo que sigue
 sin cerrar, no la fase completa.
+
+*Por qué prioricé justo esta mitad:* la instrumentación no es trabajo extra de F6, es lo que hace
+auditables los números que ya reporto en F4 — sin ella, "p95 por turno" o "costo por conversación"
+serían afirmaciones sin forma de verificarlas. Construirla es barata (un wrapper delgado sobre OTel,
+sin dependencias nuevas más allá de Langfuse que ya está en el Compose) y con retorno inmediato: es
+lo que usé para diagnosticar el prompt-caching roto y para armar el desglose de latencia por nodo y
+por tarea de este mismo README. La prueba de carga es la otra mitad de la fase, y la dejé afuera por
+una razón distinta (detalle abajo): no es cara de construir, es cara de *correr* sin un objetivo
+claro contra el cual medirla.
+
+No es solo instrumentación en el código: la verifiqué llegando a Langfuse. El span raíz
+`conversation.turn` de un turno real trae, entre otros atributos:
+
+![alt text](docs/assets/image-1.png)
+
+```
+attributes.turn.response_length: 149
+attributes.turn.characters: 4        # lo que escribió el cliente
+attributes.app.customer_id: "CUST-00125"
+attributes.conversation_id: "de9d0482-4ba8-4768-85d7-bd7e7d037cad"
+```
+
+Con el árbol completo del turno debajo (`conversation.turn` → `gen_ai.inference` con tokens
+input/output → dos `hydrate.business_reads` → tres `execute_tool.read`), auditable span por span
+en la UI de Langfuse, no solo como una promesa en texto.
 
 *Por qué no cerré también la prueba de carga:* correrla necesita un perfil de tráfico y un SLO que
 el challenge no define: inventar una cifra arbitraria de usuarios concurrentes daría un número sin
@@ -800,4 +825,4 @@ primero la seguridad y la calidad de chat; no considero que exponer SSE resuelva
 | **Ejemplos de conversaciones y pruebas** | Casos documentados por cliente con videos interactivos, fixtures en [`mock_api/fixtures/`](mock_api/fixtures/) y suites en [`evals/cases/`](evals/cases/). |
 | **Estrategia de evaluación** | Suites en capas (`make eval`, `make eval-heldout`, `make eval-blind`, `make eval-live`), calibración de judge y guardrails en [Evaluación y resultados](#evaluación-y-resultados). |
 | **Diagrama de arquitectura o flujo** | Diagrama de flujo Mermaid que modela el ciclo de vida del turno y validaciones de seguridad. |
-| **Partes no implementadas y justificación** | Análisis de priorización técnica y especificaciones ejecutables (`xfail`) para F5, F6 y F7 en [Por qué no prioricé F5, F6 y F7](#por-qué-no-prioricé-f5-f6-y-f7-y-cómo-las-resolvería). |
+| **Partes no implementadas y justificación** | Análisis de priorización técnica y especificaciones ejecutables (`xfail`) para F5 y F7 (diferidas) y F6 (parcial: instrumentación hecha y verificada en Langfuse, falta la prueba de carga) en [Por qué no prioricé F5, F6 y F7](#por-qué-no-prioricé-f5-f6-y-f7-y-cómo-las-resolvería). |
