@@ -38,7 +38,7 @@ modelo ni un mensaje del usuario pueden elegir sobre qué cuenta opera.
 
 El proyecto fue concebido desde el inicio con criterios de producción, estructurando el desarrollo en fases iterativas para priorizar la mitigación de riesgos críticos de negocio, la integridad transaccional y la observabilidad en función del tiempo disponible.
 
-Cuenta con una interfaz web en Gradio para facilitar las pruebas manuales y observar las decisiones del agente en tiempo real, la cual cuenta con botones pare responder más rapido o iniciar un nueva conversación.
+Cuenta con una interfaz web en Gradio para facilitar las pruebas manuales y observar las decisiones del agente en tiempo real, la cual cuenta con botones para responder más rapido o iniciar un nueva conversación.
 
 ![Interfaz de prueba](docs/assets/image.png)
 
