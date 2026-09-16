@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -28,7 +29,7 @@ from app.llm.protocol import LLMClient
 from app.prompts import load_system_prompt
 from app.rag.factory import build_retriever, embedding_client, reranker_client
 from app.rag.ingest import ingest_corpus
-from app.rag.store import InMemoryHybridStore, PgVectorHybridStore
+from app.rag.store import HybridStore, InMemoryHybridStore, PgVectorHybridStore
 from app.runtime.audit import AuditTrail, InMemoryAuditLog, PostgresAuditLog
 from app.runtime.clock import Clock, SystemClock
 from app.runtime.conversation_coordinator import (
@@ -92,6 +93,9 @@ def _audit_key(settings: Settings) -> bytes:
     return secrets.token_bytes(32)
 
 
+_LOGGER = logging.getLogger("app.main")
+
+
 def _bearer_token(authorization: str) -> str:
     scheme, _, token = authorization.partition(" ")
     if scheme.casefold() != "bearer" or not token:
@@ -99,7 +103,9 @@ def _bearer_token(authorization: str) -> str:
     return token
 
 
-async def _local_retriever(stack: AsyncExitStack, settings: Settings, clock: Clock) -> Retriever:
+async def _local_retriever(
+    stack: AsyncExitStack, settings: Settings, clock: Clock
+) -> tuple[Retriever, HybridStore]:
     """Local mode has no pgvector: the same hybrid retriever over an in-memory index of kb/, so a
     developer chatting with ``make run`` gets policy answers instead of abstentions."""
     embeddings = await stack.enter_async_context(embedding_client(settings, allow_network=True))
@@ -108,7 +114,7 @@ async def _local_retriever(stack: AsyncExitStack, settings: Settings, clock: Clo
         reranker = await stack.enter_async_context(reranker_client(settings, allow_network=True))
     store = InMemoryHybridStore()
     await ingest_corpus(store, embeddings, effective_on=clock.now().date())
-    return build_retriever(store, embeddings, settings, reranker=reranker)
+    return build_retriever(store, embeddings, settings, reranker=reranker), store
 
 
 def create_app(
@@ -133,6 +139,13 @@ def create_app(
     )
     postgres_enabled = resolved.app_env == "production" if use_postgres is None else use_postgres
     api_key = resolved.openai_api_key.get_secret_value() if resolved.openai_api_key else ""
+    if not api_key.strip():
+        _LOGGER.warning(
+            "OPENAI_API_KEY vacío: RAG y el modelo quedan deshabilitados para toda la vida de "
+            "este proceso. Si acabás de agregar la clave a .env, reiniciá el servidor "
+            "(uvicorn --reload no relee .env; docker compose necesita 'make up' de nuevo) — "
+            "settings se cachean una vez por proceso (config/settings.py:get_settings)."
+        )
     owned_llm = (
         build_agent_llm(
             api_key=api_key,
@@ -144,6 +157,7 @@ def create_app(
     )
     api_llm: LLMClient | None = llm or owned_llm
     api_retriever: Retriever | None = retriever
+    api_rag_store: HybridStore | None = None
     # Static per deployment (prompt caching, §12.5). Without explicit configuration each process
     # draws its own secret instead of using a value published in the repository.
     canary = _prompt_canary(resolved)
@@ -175,13 +189,16 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(api: FastAPI) -> AsyncIterator[None]:
-        nonlocal api_retriever
+        nonlocal api_retriever, api_rag_store
         async with AsyncExitStack() as stack:
             if owned_llm is not None:
                 stack.push_async_callback(owned_llm.aclose)
             if not postgres_enabled:
                 if api_retriever is None and api_key.strip():
-                    api_retriever = await _local_retriever(stack, resolved, clock or SystemClock())
+                    api_retriever, api_rag_store = await _local_retriever(
+                        stack, resolved, clock or SystemClock()
+                    )
+                    _LOGGER.info("RAG habilitado: retriever en memoria listo (kb/ ingestada).")
                 yield
                 await api.state.agent_service.drain()
                 return
@@ -211,6 +228,8 @@ def create_app(
                         reranker_client(resolved, allow_network=True)
                     )
                 api_retriever = build_retriever(rag_store, embeddings, resolved, reranker=reranker)
+                api_rag_store = rag_store
+                _LOGGER.info("RAG habilitado: retriever sobre pgvector listo.")
             install_runtime(
                 api,
                 saver=saver,
@@ -257,8 +276,26 @@ def create_app(
             await client.aclose()
 
     @api.get("/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    async def health() -> dict[str, Any]:
+        # api_retriever/api_rag_store are read live (not captured at def time): they flip from
+        # None once the lifespan finishes building them, so this reflects the current process,
+        # not just whether OPENAI_API_KEY exists in .env right now. kb_chunks is the second half
+        # of the same diagnosis: a retriever object existing does not mean the index has rows —
+        # a freshly recreated pgvector volume answers `rag_enabled: true` and zero hits until
+        # `make ingest` runs. -1 means "unknown" (Postgres unreachable from this request), not 0.
+        kb_chunks = None
+        if api_rag_store is not None:
+            try:
+                index_metadata = await api_rag_store.metadata()
+            except Exception:
+                kb_chunks = -1
+            else:
+                kb_chunks = index_metadata.chunk_count if index_metadata is not None else 0
+        return {
+            "status": "ok",
+            "rag_enabled": api_retriever is not None,
+            "kb_chunks": kb_chunks,
+        }
 
     @api.post("/conversations", status_code=201)
     async def create_conversation(

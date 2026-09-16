@@ -1,15 +1,3 @@
-"""Append-only audit trail of the agent's effects (challenge point 10, blueprint §2).
-
-Recorder events and logs describe a turn for debugging and evaluation; they are not a record of
-effects. The audit trail is: every agreement write the customer confirmed, recorded before it is
-attempted, its outcome, and every transfer to a person, written where the effect happens.
-
-Rows carry codes and identifiers only, never customer text. The customer is pseudonymized with a
-keyed hash (a plain hash of "CUST-00125" is reversed by enumerating ids), and each row is sealed
-with an HMAC over its canonical content, so a row edited afterwards no longer verifies. Encryption
-at rest and a WORM sink are F5.
-"""
-
 from __future__ import annotations
 
 import hashlib
