@@ -462,7 +462,7 @@ presupuesto a cuatro llamadas al modelo para poder verificar la respuesta, decis
 | F1 · Invariantes | Hecho (31 tests: 24 verdes, 7 `xfail` -> test para cuando implemente las fases 5 y 7) |
 | F2 · Políticas y RAG híbrido medido | Hecha con el trade-off de recall/abstención documentado |
 | F3 · Agente | Hecho |
-| F4 · Evaluación y UI| Hech0 y medido con `pass^5` live |
+| F4 · Evaluación y UI| Hecho y medido con `pass^5` live |
 | F5 · Aislamiento en base (RLS, token OBO) | **Diferida** — 4 tests `xfail` |
 | F6 · Producción medida | Parcial: OTel conectado al runtime; falta load test — **0 tests** todavía |
 | F7 · Voz | **Diferida** — sólo canal chat, 3 tests `xfail` |
