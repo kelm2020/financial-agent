@@ -10,6 +10,7 @@ from langgraph.runtime import Runtime
 from app.graph.context import GraphContext
 from app.graph.state import AgentState, ResponsePlan
 from app.guards.injection import mentions_foreign_customer
+from app.obs.tracing import record_attribute, span
 from app.policy.engine import opciones_permitidas
 from app.tools.schemas import Customer, Debt, OptionsSnapshot, PaymentOption
 
@@ -61,12 +62,26 @@ async def read_business_data(
         context.recorder.record_tool("get_customer", incluir_contacto=False)
     if debt or options:
         context.recorder.record_tool("get_debt", incluir_historial=False)
-    # The customer and the debt are independent reads: one backend round trip instead of two
-    # (§12.4). The options need the debt fingerprint, so they are read after it.
-    customer_result, debt_result = await asyncio.gather(
-        context.gateway.get_customer(context.scope) if customer else _not_requested(),
-        context.gateway.get_debt(context.scope) if debt or options else _not_requested(),
-    )
+    if options:
+        context.recorder.record_tool("get_payment_options", incluir_detalle=True)
+    # The three reads are independent of each other: one backend round trip instead of three
+    # (§12.4). The options snapshot only needs the debt fingerprint for INV-13, and that
+    # fingerprint is computed locally from the debt result once it returns; the backend does
+    # not need it.
+    with span(
+        "hydrate.business_reads",
+        attributes={
+            "app.customer_id": context.scope.customer_id,
+            "tools.planned": sum([customer, debt, options]),
+        },
+    ) as hydrate_span:
+        customer_result, debt_result, options_result = await asyncio.gather(
+            context.gateway.get_customer(context.scope) if customer else _not_requested(),
+            context.gateway.get_debt(context.scope) if debt or options else _not_requested(),
+            context.gateway.get_payment_options(context.scope) if options else _not_requested(),
+        )
+        executed = sum(1 for r in (customer_result, debt_result, options_result) if r is not None)
+        record_attribute(hydrate_span, "tools.executed", executed)
     if customer_result is not None and customer_result.status == "ok" and customer_result.data:
         read.customer = customer_result.data
         read.updates["customer"] = customer_result.data
@@ -102,9 +117,7 @@ async def read_business_data(
                         "offered_options": [],
                     }
                 )
-    if options and read.fingerprint:
-        context.recorder.record_tool("get_payment_options", incluir_detalle=True)
-        options_result = await context.gateway.get_payment_options(context.scope)
+    if options and options_result is not None and read.fingerprint:
         if options_result.status == "ok" and options_result.data is not None:
             read.options = list(options_result.data.opciones)
             read.updates["options_snapshot"] = OptionsSnapshot(
