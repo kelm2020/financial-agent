@@ -8,6 +8,32 @@ política, registra un acuerdo con confirmación explícita y deriva a un operad
 Partí del identificador de cliente (`CUST-00125`) que propone el challenge y lo vinculé a la sesión: ni el
 modelo ni un mensaje del usuario pueden elegir sobre qué cuenta opera.
 
+## Índice rápido para el corrector
+
+**Dónde respondo cada parte del challenge:**
+
+| Qué pide el challenge | Dónde lo respondo |
+|---|---|
+| Modalidad, priorización y justificación técnica | [Por qué prioricé en este orden](#por-qué-prioricé-en-este-orden) · [Cómo dividí el trabajo: de F0 a F8](#cómo-dividí-el-trabajo-de-f0-a-f8) |
+| Las 5 tools, contratos y manejo de errores | [Arquitectura y decisiones](#arquitectura-y-decisiones) → [Las cinco integraciones del challenge](#las-cinco-integraciones-del-challenge) |
+| RAG: fragmentación, embeddings, retrieval, abstención | [Conocimiento y abstención](#conocimiento-y-abstención) |
+| Los seis comportamientos / escenarios | [Casos de clientes y evidencia](#casos-de-clientes-y-evidencia) |
+| Decisiones agentic (ruteo, confirmación, errores, contexto) | [Arquitectura y decisiones](#arquitectura-y-decisiones) |
+| Estrategia y resultados de evaluación | [Evaluación y resultados](#evaluación-y-resultados) |
+| Producción, escala, latencia y costos | [Latencia y costo medidos](#latencia-y-costo-medidos) · [Cómo pienso llevarlo a producción](#cómo-pienso-llevarlo-a-producción) |
+| Voz / Realtime | [Qué cambiaría para Voice AI / Realtime](#qué-cambiaría-para-voice-ai--realtime) |
+| Qué no implementé y por qué (F5, F6, F7) | [Por qué no prioricé F5, F6 y F7](#por-qué-no-prioricé-f5-f6-y-f7-y-cómo-las-resolvería) · [Estado del challenge](#estado-del-challenge) |
+| Entregables (repo, README, casos, diagrama, evaluación) | [Cómo cubro los entregables](#cómo-cubro-los-entregables) |
+
+**Para probar el agente vos mismo:**
+
+| Qué querés hacer | Dónde |
+|---|---|
+| Levantar el entorno (local o Docker) | [Cómo levantar el entorno](#cómo-levantar-el-entorno) |
+| Correr la suite de tests sin gastar créditos | [Sin claves ni servicios externos](#sin-claves-ni-servicios-externos-la-suite-entera-corre-gratis) |
+| Guiones de conversación listos para copiar/pegar, por cliente | [Casos de clientes y evidencia](#casos-de-clientes-y-evidencia) (4 clientes, con videos) |
+| Casos automatizados de evaluación | [`evals/cases/`](evals/cases/) |
+
 ### Enfoque de ingeniería: diseño orientado a producción
 
 El proyecto fue concebido desde el inicio con criterios de producción, estructurando el desarrollo en fases iterativas para priorizar la mitigación de riesgos críticos de negocio, la integridad transaccional y la observabilidad en función del tiempo disponible.
@@ -75,8 +101,13 @@ Si ya usás los puertos 8000 y 8001 con la demo local, detené esos procesos ant
 `APP_ENV=production` como certificación productiva:** con esa configuración activo la persistencia,
 pero sigo usando autenticación y backend de demostración. **Lo que sí cambia respecto a `make run`:
 los checkpoints, conversaciones y el índice de RAG son durables, hay Redis para rate limit
-distribuido, y Langfuse queda disponible en `http://localhost:3000` (login
-`admin@example.local` / `change-me-now`)**.
+distribuido, y Langfuse queda disponible en `http://localhost:3000` 
+
+Credenciales LangFuse
+
+`admin@example.local` / `change-me-now`
+
+![alt text](docs/assets/image-1.png)
 
 ### IMPORTANTE
 
@@ -764,7 +795,7 @@ primero la seguridad y la calidad de chat; no considero que exponer SSE resuelva
 | Entregable del challenge | Dónde se encuentra en este repositorio |
 |---|---|
 | **Repositorio con código fuente** | Código modular en [`app/`](app/), [`mock_api/`](mock_api/), [`config/`](config/), [`migrations/`](migrations/) y suite en [`tests/`](tests/). |
-| **README con instrucciones de ejecución** | Sección [Cómo ejecuto y reviso la solución](#cómo-ejecuto-y-reviso-la-solución) con flujos para local rápido (`make run`), Docker (`make up`) y pruebas offline. |
+| **README con instrucciones de ejecución** | Sección [Cómo levantar el entorno](#cómo-levantar-el-entorno) con flujos para local rápido (`make run`), Docker (`make up`) y pruebas offline. |
 | **Arquitectura y decisiones técnicas** | Sección [Arquitectura y decisiones](#arquitectura-y-decisiones) y registros formales en [`docs/decisions/`](docs/decisions/) (ADR-009 a ADR-012). |
 | **Ejemplos de conversaciones y pruebas** | Casos documentados por cliente con videos interactivos, fixtures en [`mock_api/fixtures/`](mock_api/fixtures/) y suites en [`evals/cases/`](evals/cases/). |
 | **Estrategia de evaluación** | Suites en capas (`make eval`, `make eval-heldout`, `make eval-blind`, `make eval-live`), calibración de judge y guardrails en [Evaluación y resultados](#evaluación-y-resultados). |
