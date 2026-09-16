@@ -44,11 +44,15 @@ def render_report(report: EvalReport) -> str:
         f"| Calidad conversacional | {criterion} | {_ratio(rate)} |"
         for criterion, rate in metrics.quality_by_criterion.items()
     )
+    latency = f"p95 turno: {metrics.p95_turn_latency_ms:.1f} ms"
+    if report.concurrency > 1:
+        # Cases waited on each other, so this number is contention, not the agent's latency.
+        latency += f" (NO COMPARABLE: {report.concurrency} casos en paralelo)"
     lines.extend(
         (
             "",
             f"Casos: {_ratio(metrics.cases_passed)} · pass^k: {_ratio(report.pass_to_k)} · "
-            f"p95 turno: {metrics.p95_turn_latency_ms:.1f} ms",
+            f"{latency}",
         )
     )
     if metrics.total_cost_usd is not None:

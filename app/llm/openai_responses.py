@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -31,6 +33,27 @@ class ProviderUsage:
     input_tokens: int
     output_tokens: int
     cached_tokens: int
+
+
+# One client serves every case of an evaluation, so its record list cannot say which case spent
+# what. A context-local sink can: each asyncio task inherits a copy of the context at creation and
+# keeps appending to the same list object, so the attribution survives cases running concurrently.
+_usage_sink: ContextVar[list[ProviderUsage] | None] = ContextVar("usage_sink", default=None)
+
+
+@contextmanager
+def collect_usage() -> Iterator[list[ProviderUsage]]:
+    """Collect the usage of every provider call made inside this context.
+
+    Nesting replaces the sink for the inner block; the outer one stops collecting until the inner
+    block exits. Evaluations open exactly one scope per case, so that case never arises.
+    """
+    sink: list[ProviderUsage] = []
+    token = _usage_sink.set(sink)
+    try:
+        yield sink
+    finally:
+        _usage_sink.reset(token)
 
 
 def _strict_json_schema(value: Any) -> Any:
@@ -123,15 +146,17 @@ class OpenAIResponsesLLM:
         if isinstance(usage, dict):
             details = usage.get("input_tokens_details")
             cached = details.get("cached_tokens", 0) if isinstance(details, dict) else 0
-            self._usage_records.append(
-                ProviderUsage(
-                    task=task,
-                    model=model,
-                    input_tokens=int(usage.get("input_tokens", 0)),
-                    output_tokens=int(usage.get("output_tokens", 0)),
-                    cached_tokens=int(cached),
-                )
+            record = ProviderUsage(
+                task=task,
+                model=model,
+                input_tokens=int(usage.get("input_tokens", 0)),
+                output_tokens=int(usage.get("output_tokens", 0)),
+                cached_tokens=int(cached),
             )
+            self._usage_records.append(record)
+            sink = _usage_sink.get()
+            if sink is not None:
+                sink.append(record)
         status = payload.get("status")
         if status == "incomplete":
             details = payload.get("incomplete_details")

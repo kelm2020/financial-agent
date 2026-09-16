@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -14,6 +15,7 @@ from app.llm.openai_responses import (
     OpenAIResponsesLLM,
     _strict_json_schema,
     build_agent_llm,
+    collect_usage,
 )
 
 
@@ -214,3 +216,93 @@ async def test_every_agent_entry_point_pairs_the_turn_model_with_the_check_model
         assert adapter._reasoning == {"effort": "low"}
     finally:
         await adapter.aclose()
+
+
+async def test_usage_is_attributed_per_scope_when_calls_overlap() -> None:
+    """Each scope is billed only for its own calls, even while other scopes are mid-flight.
+
+    The evaluation runner used to attribute tokens by slicing the client's shared record list from
+    an index taken before the case started. That is only correct while exactly one case runs at a
+    time: with cases in parallel the slice picks up whatever the others appended. A context-local
+    sink is what makes the cost per case survive concurrency.
+    """
+    started = asyncio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        tokens = int(payload["instructions"])
+        # Force overlap: the first call in flight only finishes once another has begun.
+        if tokens == 1:
+            started.set()
+        else:
+            await started.wait()
+        return httpx.Response(
+            200,
+            json={
+                "usage": {"input_tokens": tokens, "output_tokens": tokens},
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": '{"text":"ok"}'}],
+                    }
+                ],
+            },
+        )
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.openai.test/v1"
+    )
+    adapter = OpenAIResponsesLLM(api_key="sk-test", model="model-test", client=client)
+
+    async def scoped(tokens: int) -> list[int]:
+        with collect_usage() as sink:
+            await adapter.complete(
+                task="response",
+                messages=({"role": "system", "content": str(tokens)},),
+                response_model=GeneratedReply,
+            )
+            return [record.input_tokens for record in sink]
+
+    try:
+        async with asyncio.TaskGroup() as group:
+            first = group.create_task(scoped(1))
+            second = group.create_task(scoped(2))
+    finally:
+        await client.aclose()
+
+    # Neither scope saw the other's call, and the client still holds both.
+    assert first.result() == [1]
+    assert second.result() == [2]
+    assert sorted(record.input_tokens for record in adapter.usage_records) == [1, 2]
+
+
+async def test_usage_outside_a_scope_still_reaches_the_client() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            json={
+                "usage": {"input_tokens": 7, "output_tokens": 3},
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": '{"text":"x"}'}],
+                    }
+                ],
+            },
+        )
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.openai.test/v1"
+    )
+    adapter = OpenAIResponsesLLM(api_key="sk-test", model="model-test", client=client)
+    try:
+        await adapter.complete(
+            task="response",
+            messages=({"role": "system", "content": "s"},),
+            response_model=GeneratedReply,
+        )
+    finally:
+        await client.aclose()
+
+    assert [record.input_tokens for record in adapter.usage_records] == [7]

@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -102,3 +105,26 @@ class IdempotencyStore:
 
 
 idempotency_store = IdempotencyStore()
+
+# The mock keeps agreements for the life of the process, which is what a single demo wants and
+# exactly what breaks when independent conversations run at the same time: they share one
+# customer's agreements and reset each other's reservations. `isolated_store` gives a scope its
+# own backend state, so concurrent evaluation cases cannot see each other's writes. Nothing that
+# skips the scope changes behaviour: it keeps using the process-wide store.
+_active_store: ContextVar[IdempotencyStore | None] = ContextVar("active_store", default=None)
+
+
+def current_store() -> IdempotencyStore:
+    """The store this scope must use: its own if it opened one, else the process-wide default."""
+    return _active_store.get() or idempotency_store
+
+
+@contextmanager
+def isolated_store() -> Iterator[IdempotencyStore]:
+    """Serve this scope from a private store, so its agreements are invisible to every other."""
+    store = IdempotencyStore()
+    token = _active_store.set(store)
+    try:
+        yield store
+    finally:
+        _active_store.reset(token)

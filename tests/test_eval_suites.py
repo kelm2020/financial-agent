@@ -204,6 +204,30 @@ async def test_evaluate_rejects_invalid_arguments() -> None:
         await evaluate(case_filter="Z-99")
     with pytest.raises(ValueError, match="Unknown suite"):
         await evaluate(suite="otra", case_filter="C-01")
+    with pytest.raises(ValueError, match="concurrency must be"):
+        await evaluate(concurrency=0, case_filter="C-01")
+
+
+async def test_concurrent_runs_score_exactly_like_sequential_ones() -> None:
+    """Concurrency may only buy wall time, never change a verdict.
+
+    Cases share the mock backend's agreements and reservations, so running them at once used to
+    make one case read another's agreement ("agreement_already_exists") and fail. Each session now
+    serves itself from a private store, and each case bills its tokens to a context-local sink
+    instead of a slice of the client's shared list. Latency is excluded on purpose: with cases
+    waiting on each other it measures contention.
+    """
+    sequential = await evaluate(suite="level-a", k=3, concurrency=1)
+    concurrent = await evaluate(suite="level-a", k=3, concurrency=8)
+
+    assert concurrent.concurrency == 8
+    assert sequential.concurrency == 1
+    assert concurrent.pass_to_k == sequential.pass_to_k
+    assert concurrent.runs == sequential.runs
+    ignored = {"p95_turn_latency_ms"}
+    assert concurrent.metrics.model_dump(exclude=ignored) == sequential.metrics.model_dump(
+        exclude=ignored
+    )
 
 
 @pytest.mark.parametrize(

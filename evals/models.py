@@ -249,4 +249,7 @@ class EvalReport(EvalModel):
     prompt_fingerprint: str | None = None
     judge_model: str | None = None
     gate_profile: Literal["full", "safety"] = "full"
+    # Cases run at once. Above 1 the per-turn latency measures contention between cases as much as
+    # the agent, so a published latency number has to come from a run with concurrency 1.
+    concurrency: int = Field(default=1, ge=1)
     metrics: EvalMetrics

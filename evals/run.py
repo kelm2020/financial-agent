@@ -137,9 +137,12 @@ async def evaluate(
     judge_llm: LLMClient | None = None,
     judge_model: str | None = None,
     progress: ProgressCallback | None = None,
+    concurrency: int = 1,
 ) -> EvalReport:
     if k < 1:
         raise ValueError("k must be at least 1")
+    if concurrency < 1:
+        raise ValueError("concurrency must be at least 1")
     default_path, expected_base = DATASETS[dataset]
     bases = load_cases(cases_path or default_path, expected_base=expected_base)
     cases = list(expand_cases(bases))
@@ -162,31 +165,47 @@ async def evaluate(
     elif suite != "level-a":
         raise ValueError(f"Unknown suite {suite!r}")
 
-    observations: list[CaseObservation] = []
-    run_cases: list[ExpandedCase] = []
     per_case_passes: dict[str, list[bool]] = {case.id: [] for case in cases}
-    total_runs = len(cases) * k
+    schedule = [(case, repetition) for case in cases for repetition in range(1, k + 1)]
+    total_runs = len(schedule)
+    results: list[tuple[CaseObservation, bool] | None] = [None] * total_runs
     completed_runs = 0
+    # Runs are independent: each opens its own session, recorder and transport, and bills its
+    # tokens to a context-local sink. They are also almost entirely provider wait, so running them
+    # one at a time makes a k=5 suite take about an hour. Results are stored by position, so the
+    # report does not depend on the order in which they finish.
+    limit = asyncio.Semaphore(max(1, concurrency))
+
+    async def run_one(position: int, case: ExpandedCase, repetition: int) -> None:
+        nonlocal completed_runs
+        async with limit:
+            observed = await run_case(
+                case,
+                llm=llm,
+                input_cost_per_million=input_cost_per_million,
+                output_cost_per_million=output_cost_per_million,
+                cached_cost_per_million=cached_cost_per_million,
+            )
+        passed = evaluate_case(case, observed).passed
+        results[position] = (observed, passed)
+        completed_runs += 1
+        if progress is not None:
+            progress(completed_runs, total_runs, case.id, repetition, k, passed)
+
     try:
-        for case in cases:
-            for repetition in range(1, k + 1):
-                observed = await run_case(
-                    case,
-                    llm=llm,
-                    input_cost_per_million=input_cost_per_million,
-                    output_cost_per_million=output_cost_per_million,
-                    cached_cost_per_million=cached_cost_per_million,
-                )
-                observations.append(observed)
-                run_cases.append(case)
-                passed = evaluate_case(case, observed).passed
-                per_case_passes[case.id].append(passed)
-                completed_runs += 1
-                if progress is not None:
-                    progress(completed_runs, total_runs, case.id, repetition, k, passed)
+        async with asyncio.TaskGroup() as group:
+            for position, (case, repetition) in enumerate(schedule):
+                group.create_task(run_one(position, case, repetition))
     finally:
         if llm is not None:
             await llm.aclose()
+
+    # TaskGroup either fills every position or raises, so no result is missing here.
+    completed = [result for result in results if result is not None]
+    run_cases = [case for case, _ in schedule]
+    observations = [observed for observed, _ in completed]
+    for (case, _), (_, passed) in zip(schedule, completed, strict=True):
+        per_case_passes[case.id].append(passed)
 
     metrics = aggregate_metrics(run_cases, observations)
     if judge_llm is not None:
@@ -224,6 +243,7 @@ async def evaluate(
         prompt_fingerprint=_prompt_fingerprint(),
         check_model=check_model,
         judge_model=judge_model if judge_llm is not None else None,
+        concurrency=concurrency,
         metrics=metrics,
     )
 
@@ -243,6 +263,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--judge-model",
         help="Scores conversational quality with this model (must differ from the agent's).",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help=(
+            "Cases to run at once. Runs are independent and almost entirely provider wait, so a "
+            "live k=5 suite drops from about an hour to minutes. Stays at 1 by default because "
+            "the useful ceiling is the provider's rate limit, not this machine."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -298,6 +328,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 judge_llm=judge,
                 judge_model=args.judge_model,
                 progress=print_progress if args.suite == "live" else None,
+                concurrency=args.concurrency,
             )
         finally:
             if judge is not None:

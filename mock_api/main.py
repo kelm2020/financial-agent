@@ -32,7 +32,7 @@ from mock_api.auth import (
     require_claims,
 )
 from mock_api.failure_injection import FailureInjection, failure_injection
-from mock_api.idempotency_store import idempotency_store
+from mock_api.idempotency_store import current_store
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FIXTURE_REFERENCE_TIME = datetime.fromisoformat("2026-09-11T14:03:00-03:00")
@@ -145,7 +145,7 @@ async def get_customer(
     customer = CUSTOMERS.get(customer_id)
     if customer is None:
         raise _not_found("el cliente")
-    registered = idempotency_store.active_agreement_count(customer_id)
+    registered = current_store().active_agreement_count(customer_id)
     if registered:
         # An agreement registered here is active for the account, in this and later conversations.
         customer = customer.model_copy(
@@ -208,8 +208,8 @@ async def create_payment_agreement(
     assert_subject(claims, request.customer_id)
     await _prepare(injection)
     request_payload = request.model_dump(mode="json")
-    fingerprint = idempotency_store.request_fingerprint(request_payload)
-    reservation = await idempotency_store.reserve(idempotency_key, request.customer_id, fingerprint)
+    fingerprint = current_store().request_fingerprint(request_payload)
+    reservation = await current_store().reserve(idempotency_key, request.customer_id, fingerprint)
     if reservation.kind == "reuse":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -228,14 +228,14 @@ async def create_payment_agreement(
         replay = {**reservation.record.response, "replayed": True}
         return AgreementResponse.model_validate_json(json.dumps(replay))
 
-    lock = await idempotency_store.customer_lock(request.customer_id)
+    lock = await current_store().customer_lock(request.customer_id)
     try:
         async with lock:
-            current = idempotency_store.active_agreement(
+            current = current_store().active_agreement(
                 request.customer_id, request.debt_fingerprint
             )
             if current is not None:
-                await idempotency_store.abandon(idempotency_key)
+                await current_store().abandon(idempotency_key)
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail={
@@ -255,7 +255,7 @@ async def create_payment_agreement(
                 for option in TypeAdapter(list[PaymentOption]).validate_json(json.dumps(options))
             }
             if request.opcion_id not in valid_ids:
-                await idempotency_store.abandon(idempotency_key)
+                await current_store().abandon(idempotency_key)
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail={
@@ -273,12 +273,12 @@ async def create_payment_agreement(
                 created_at=datetime.now(UTC),
             )
             serialized = response.model_dump(mode="json")
-            idempotency_store.save_agreement(serialized)
-            await idempotency_store.complete(idempotency_key, serialized)
+            current_store().save_agreement(serialized)
+            await current_store().complete(idempotency_key, serialized)
     except HTTPException:
         raise
     except Exception:
-        await idempotency_store.abandon(idempotency_key)
+        await current_store().abandon(idempotency_key)
         raise
 
     injected = _malformed_or_partial(injection, response.model_dump(mode="json"))

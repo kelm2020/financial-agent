@@ -19,7 +19,7 @@ from app.graph.persistence import checkpoint_serializer
 from app.graph.recorder import TurnRecorder
 from app.graph.service import ConversationAgentService
 from app.guards.output import OutputValidator
-from app.llm.openai_responses import OpenAIResponsesLLM, ProviderUsage
+from app.llm.openai_responses import OpenAIResponsesLLM, ProviderUsage, collect_usage
 from app.llm.protocol import LLMClient
 from app.prompts import load_system_prompt
 from app.rag.corpus import load_corpus
@@ -37,7 +37,7 @@ from evals.models import (
     TurnObservation,
 )
 from mock_api.auth import issue_token
-from mock_api.idempotency_store import idempotency_store
+from mock_api.idempotency_store import current_store, isolated_store
 from mock_api.main import app as mock_app
 
 # List prices per million tokens (input, cached input, output) of models a run uses besides the
@@ -242,7 +242,6 @@ async def agent_session(
     if offline_policy_allowed is None:
         offline_policy_allowed = llm is None
     resolved = setup or SetupSpec()
-    await idempotency_store.reset()
     settings = _settings()
     transport = FaultTransport(resolved.faults)
     client = httpx.AsyncClient(transport=transport, base_url="http://mock")
@@ -269,20 +268,23 @@ async def agent_session(
         system_prompt=load_system_prompt(),
         offline_policy_allowed=offline_policy_allowed,
     )
-    try:
-        conversation = await service.create_conversation(customer_id)
-        yield AgentSession(
-            service=service,
-            context=context,
-            recorder=recorder,
-            clock=clock,
-            conversation_id=conversation.conversation_id,
-            customer_id=customer_id,
-            observations=[],
-            transport=transport,
-        )
-    finally:
-        await client.aclose()
+    # A private backend instead of resetting the shared one: a reset is only correct while exactly
+    # one session exists, and evaluations run many at once.
+    with isolated_store():
+        try:
+            conversation = await service.create_conversation(customer_id)
+            yield AgentSession(
+                service=service,
+                context=context,
+                recorder=recorder,
+                clock=clock,
+                conversation_id=conversation.conversation_id,
+                customer_id=customer_id,
+                observations=[],
+                transport=transport,
+            )
+        finally:
+            await client.aclose()
 
 
 def final_agreement(session: AgentSession) -> dict[str, object] | None:
@@ -290,7 +292,7 @@ def final_agreement(session: AgentSession) -> dict[str, object] | None:
     fingerprint = final_state.get("agreement_fingerprint") or final_state.get("debt_fingerprint")
     if not fingerprint:
         return None
-    return idempotency_store.active_agreement(session.customer_id, str(fingerprint))
+    return current_store().active_agreement(session.customer_id, str(fingerprint))
 
 
 async def run_case(
@@ -301,17 +303,19 @@ async def run_case(
     output_cost_per_million: float | None = None,
     cached_cost_per_million: float | None = None,
 ) -> CaseObservation:
-    usage_start = len(llm.usage_records) if isinstance(llm, OpenAIResponsesLLM) else 0
-    async with agent_session(
-        case.customer_id, llm=llm, evidence=case.evidence, setup=case.setup
-    ) as session:
-        for turn in case.turns:
-            await session.send(turn.user, advance_seconds=turn.advance_seconds)
-        agreement = final_agreement(session)
-        observations = tuple(session.observations)
-        writes = tuple(session.recorder.agreement_writes)
-        payloads = tuple(session.transport.payloads)
-    usage = llm.usage_records[usage_start:] if isinstance(llm, OpenAIResponsesLLM) else ()
+    # Attribution is context-local, never a slice of the client's shared list: cases may run
+    # concurrently and each one must be charged only for the calls its own turns made.
+    with collect_usage() as collected:
+        async with agent_session(
+            case.customer_id, llm=llm, evidence=case.evidence, setup=case.setup
+        ) as session:
+            for turn in case.turns:
+                await session.send(turn.user, advance_seconds=turn.advance_seconds)
+            agreement = final_agreement(session)
+            observations = tuple(session.observations)
+            writes = tuple(session.recorder.agreement_writes)
+            payloads = tuple(session.transport.payloads)
+    usage = tuple(collected)
     input_tokens = sum(item.input_tokens for item in usage)
     output_tokens = sum(item.output_tokens for item in usage)
     cached_tokens = sum(item.cached_tokens for item in usage)
