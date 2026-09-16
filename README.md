@@ -571,7 +571,9 @@ Cliente sin deuda vigente.
 - Agente: De nada. Que tengas un buen día.
 ``` 
 
-<video src="docs/assets/CUST00450-cliente-sin-deuda.mov" controls="controls" width="100%"></video>
+https://github.com/user-attachments/assets/b9cdaaf0-bcab-4623-b1c8-577f72c58a64
+
+
 
 ## `CUST-00125`
 
@@ -598,7 +600,8 @@ Cliente con mora media, tres vencimientos impagos. Probá saldo, opciones, un ac
 ```
 ### Registro de compromiso de pago:
 
-<video src="docs/assets/CUST-00125-registro-compromiso-de-pago.mov" controls="controls" width="100%"></video>
+https://github.com/user-attachments/assets/076caf13-1bf8-4cab-b399-c9185511b11b
+
 
 ### Otras consultas de Maria donde se le avisa que tiene regisrado un compromiso de pago
 
@@ -616,7 +619,9 @@ Cliente con mora media, tres vencimientos impagos. Probá saldo, opciones, un ac
 - Agente: No se aceptan cuotas de la tarjeta del banco para planes; los planes son de la empresa y la tarjeta se usa en un pago. Los medios habilitados incluyen la tarjeta de crédito (Visa o Mastercard) del titular, en un pago. [PAY-MET-003] [PAY-MET-001]
 ```
 
-<video src="docs/assets/CUST-00125-compromiso-pago-activo-mas-consulta.mov" controls="controls" width="100%"></video>
+
+https://github.com/user-attachments/assets/04eb9429-34b6-4c4c-8210-7b45d2b17a92
+
 
 ### Caso - Consulta
 
@@ -632,7 +637,8 @@ Cliente con mora media, tres vencimientos impagos. Probá saldo, opciones, un ac
 - Agente: Según el sistema, al día de hoy tenés un saldo de $184.500, con 3 períodos vencidos y 63 días de atraso. Ya tenés un acuerdo de pago activo, así que no hace falta armar otro plan. Si necesitás modificarlo, te puedo derivar con un asesor.
 ```
 
-<video src="docs/assets/CUST-00125-con-compromiso-de-pago-activo.mov" controls="controls" width="100%"></video>
+
+https://github.com/user-attachments/assets/1c9dc627-968b-4ab9-a1d0-4e74a56fb6ba
 
 
 `CUST-00377`
@@ -655,7 +661,9 @@ Cliente con mora temprana con identidad sin verificar. Un plan requiere validar 
 - Agente: Tu caso ya lo tiene un asesor. ¿Querés consultar tu saldo o alguna política?
 ```
 
-<video src="docs/assets/CUST00377cliente-mora-temprana.mov" controls="controls" width="100%"></video>
+
+https://github.com/user-attachments/assets/aa4ef0da-cd4e-476b-a693-b7d947979ab5
+
 
 `CUST-00212`
 
@@ -681,7 +689,8 @@ Cliente pre-judicial. Un pedido de plan se deriva a un operador.
 - Agente: Tu caso ya lo tiene un asesor. ¿Querés consultar tu saldo o alguna política?
 ```
 
-<video src="docs/assets/CUST-00212-cliente-prejudicial.mov" controls="controls" width="100%"></video>
+https://github.com/user-attachments/assets/6317d440-27ff-468a-9238-361b27cfc5c5
+
 
 ### Caso - Fuera de contexto:
 
@@ -693,7 +702,8 @@ Cliente pre-judicial. Un pedido de plan se deriva a un operador.
 - Agente: Te puedo ayudar sólo con tu cuenta y las opciones de pago. ¿Seguimos con eso?
 ```
 
-<video src="docs/assets/caso-fuera-de-contexto.mov" controls="controls" width="100%"></video>
+
+https://github.com/user-attachments/assets/a70e9655-af89-4da4-9ec7-400c057209d7
 
 
 Los seis comportamientos del challenge, con conversaciones independientes:
