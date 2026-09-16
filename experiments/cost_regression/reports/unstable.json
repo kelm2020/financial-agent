@@ -1,0 +1,28 @@
+{
+  "variant": "unstable",
+  "runs": 5,
+  "input_tokens_per_call": [
+    64,
+    64,
+    64,
+    64,
+    64
+  ],
+  "output_tokens_per_call": [
+    64,
+    64,
+    64,
+    64,
+    64
+  ],
+  "cached_tokens_per_call": [
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "hit_rate": 0.0,
+  "total_cost_usd": 0.000144,
+  "system_prompt_first_120_chars": "[timestamp=1789527549.031182] Sos un asistente virtual de cobranzas de Froneus, hablás español rioplatense, en voseo, si"
+}
