@@ -115,6 +115,11 @@ services:
       MOCK_TOKEN_SECRET: ${MOCK_TOKEN_SECRET:-local-development-secret-change-me}
       SYSTEM_PROMPT_CANARY: ${SYSTEM_PROMPT_CANARY:-}
       LANGGRAPH_STRICT_MSGPACK: "true"
+      # OpenTelemetry → Langfuse. Leave OTEL_EXPORTER_OTLP_ENDPOINT empty to disable. When set,
+      # the agent POSTs OTLP traces to <endpoint>/api/public/otel/v1/traces with Basic auth.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://langfuse:3000}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
     ports:
       - "8000:8000"
     healthcheck:
